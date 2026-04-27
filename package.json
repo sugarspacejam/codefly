@@ -1,0 +1,12 @@
+{
+  "name": "codechat",
+  "version": "1.0.0",
+  "description": "3D Codebase Explorer — fly through any repo with your team",
+  "scripts": {
+    "start": "node server.js",
+    "generate": "node generate-graph.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

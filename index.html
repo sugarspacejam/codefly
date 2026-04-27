@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sugarspace Code Explorer 3D</title>
+    <title>CodeFly — 3D Codebase Explorer</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Courier New', monospace; overflow: hidden; background: #000; }
+        body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; overflow: hidden; background: #000; }
         body > canvas { display: block; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; }
 
         #crosshair {
@@ -21,92 +21,568 @@
 
         #hud {
             position: fixed; top: 20px; left: 20px; color: #0f8; font-size: 13px;
-            text-shadow: 0 0 8px rgba(0,255,136,0.5); z-index: 10; pointer-events: none;
+            z-index: 10; pointer-events: none;
             line-height: 1.6;
         }
         #hud .title { font-size: 22px; font-weight: bold; margin-bottom: 8px; color: #0fa; }
         #hud .stat { color: #8f8; }
         #hud .key { color: #ff0; }
 
-        #fileInfo {
-            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.85); border: 1px solid #0f8; border-radius: 8px;
-            padding: 12px 24px; color: #0f8; font-size: 14px; z-index: 10;
-            pointer-events: none; text-align: center; display: none;
-            box-shadow: 0 0 20px rgba(0,255,136,0.3);
+        #motionControls {
+            position: fixed;
+            top: 280px;
+            left: 20px;
+            z-index: 12;
+            pointer-events: auto;
+            background: rgba(0,0,0,0.86);
+            border: 1px solid #1a3a2a;
+            border-radius: 10px;
+            padding: 10px 12px;
+            width: 260px;
+            color: #8f8;
+            font-size: 12px;
+            display: none;
+            box-shadow: 0 2px 18px rgba(0,0,0,0.55);
         }
-        #fileInfo .filename { font-size: 18px; font-weight: bold; color: #fff; }
-        #fileInfo .details { color: #8f8; margin-top: 4px; }
+        #motionControls .mc-title { color: #fff; font-weight: bold; margin-bottom: 8px; letter-spacing: 1px; }
+        #motionControls .mc-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
+        #motionControls label { color: #8f8; }
+        #motionControls input[type="range"] { width: 140px; }
+        #motionControls input[type="checkbox"] { transform: translateY(1px); }
+
+        #fileInfo { display: none; }
+
+        #hoverTooltip {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.88); border: 1px solid #1a3a2a;
+            border-radius: 8px; padding: 8px 18px;
+            font-size: 12px; font-family: 'Courier New', monospace;
+            z-index: 10; pointer-events: none; display: none;
+            white-space: nowrap; line-height: 1.7;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+        }
 
         #legend {
-            position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.8);
+            position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.85);
             border: 1px solid #333; border-radius: 8px; padding: 12px 16px;
             color: #ccc; font-size: 12px; z-index: 10; pointer-events: none;
+            max-height: 80vh; overflow-y: auto;
         }
         #legend .title { font-weight: bold; color: #fff; margin-bottom: 6px; }
         .legend-item { display: flex; align-items: center; margin: 3px 0; }
-        .legend-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+        .legend-dot { width: 10px; height: 10px; margin-right: 8px; flex-shrink: 0; border-radius: 50%; }
 
         #startScreen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.95); display: flex; justify-content: center;
+            background: #000; display: flex; justify-content: center;
             align-items: center; z-index: 2000; flex-direction: column;
         }
         #startScreen h1 {
-            font-size: 48px; color: #0fa; text-shadow: 0 0 30px rgba(0,255,170,0.5);
-            margin-bottom: 10px;
+            font-size: 52px; color: #0fa; letter-spacing: 8px;
+            margin-bottom: 6px;
         }
-        #startScreen .sub { color: #8f8; font-size: 16px; margin-bottom: 30px; }
-        #startScreen .stats { color: #666; font-size: 14px; margin-bottom: 30px; }
+        #startScreen .sub { color: #8f8; font-size: 16px; margin-bottom: 28px; }
+        #startScreen .stats { color: #666; font-size: 14px; margin-bottom: 12px; min-height: 20px; }
+
+        .start-section {
+            width: 480px;
+            border: 1px solid #1a1a1a;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 14px;
+            background: rgba(255,255,255,0.02);
+        }
+        .start-section-label {
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: #444;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+        }
+        .start-section-label span {
+            color: #0f8;
+        }
+        .local-btn {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            background: rgba(0,255,136,0.08);
+            color: #0f8;
+            border: 1px solid #0f8;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .local-btn:hover { background: rgba(0,255,136,0.18); }
+        #repoInput {
+            padding: 12px 16px; font-size: 15px; font-family: 'Courier New', monospace;
+            background: rgba(0,255,136,0.04); color: #0f8; border: 1px solid #222; border-radius: 8px;
+            width: 100%; outline: none; display: block;
+        }
+        #repoInput:focus { border-color: #0f8; box-shadow: 0 0 8px rgba(0,255,136,0.15); }
+        #repoInput::placeholder { color: rgba(0,255,136,0.25); }
         #startBtn {
             padding: 16px 48px; font-size: 20px; font-family: 'Courier New', monospace;
-            background: linear-gradient(135deg, #0a3, #0f8); color: #000; border: none;
-            border-radius: 8px; cursor: pointer; font-weight: bold;
-            box-shadow: 0 0 30px rgba(0,255,136,0.4); transition: all 0.3s;
+            background: linear-gradient(180deg, #0c4, #0a3); color: #000; border: 2px solid #0f8; border-radius: 6px;
+            cursor: pointer; font-weight: bold; letter-spacing: 2px;
+            transition: background 0.2s; box-shadow: 0 0 15px rgba(0,255,136,0.2);
         }
-        #startBtn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(0,255,136,0.6); }
+        #startBtn:hover { background: #0f8; }
+        #startBtn:disabled { background: #333; border-color: #555; color: #555; cursor: not-allowed; }
         .controls-hint {
             color: #555; font-size: 12px; margin-top: 20px; text-align: center; line-height: 1.8;
         }
         .controls-hint span { color: #ff0; }
+        #loadingBar {
+            width: 480px; height: 4px; background: #111; margin-bottom: 16px; display: none;
+        }
+        #loadingBar .fill { height: 100%; background: #0f8; width: 0%; transition: width 0.3s; }
+        #loadError { color: #f44; font-size: 13px; margin-bottom: 12px; display: none; }
+        #recentRepos { margin-top: 16px; }
+        .recent-repo {
+            color: #555; font-size: 12px; padding: 4px 0; cursor: pointer;
+        }
+        .recent-repo:hover { color: #0f8; }
+
+        /* Search overlay */
+        #searchOverlay {
+            position: fixed; top: 15%; left: 50%; transform: translateX(-50%);
+            width: 500px; background: rgba(0,0,0,0.95); border: 1px solid #0f8; border-radius: 10px;
+            box-shadow: 0 0 30px rgba(0,255,136,0.15);
+            z-index: 25; display: none; padding: 0;
+        }
+        #searchInput {
+            width: 100%; padding: 14px 18px; font-size: 16px;
+            font-family: 'Courier New', monospace; background: transparent;
+            color: #0f8; border: none; border-bottom: 1px solid #333; outline: none;
+        }
+        #searchInput::placeholder { color: rgba(0,255,136,0.3); }
+        #searchResults {
+            max-height: 400px; overflow-y: auto;
+        }
+        .search-result {
+            padding: 8px 18px; cursor: pointer; font-size: 13px; color: #8f8;
+            border-bottom: 1px solid #111;
+        }
+        .search-result:hover { background: rgba(0,255,136,0.1); color: #fff; }
+        .search-result .sr-kind { color: #666; font-size: 11px; }
+        .search-result .sr-file { color: #555; font-size: 11px; }
 
         #minimap {
             position: fixed; bottom: 20px; right: 20px; width: 200px; height: 200px;
-            background: rgba(0,0,0,0.8); border: 1px solid #333; border-radius: 8px;
+            background: rgba(0,0,0,0.85); border: 1px solid #333; border-radius: 8px;
             z-index: 10; pointer-events: none;
+        }
+
+        /* Chat */
+        #chatBox {
+            position: fixed; bottom: 230px; right: 20px; width: 280px;
+            z-index: 10; display: none;
+        }
+        #chatMessages {
+            background: rgba(0,0,0,0.85); border: 1px solid #333; border-radius: 8px;
+            padding: 8px; font-size: 12px; color: #ccc; max-height: 150px;
+            overflow-y: auto; margin-bottom: 4px;
+        }
+        #chatInput {
+            display: none; width: 100%; padding: 6px 10px; font-size: 13px;
+            font-family: 'Courier New', monospace; background: rgba(0,0,0,0.9);
+            color: #0f8; border: 1px solid #0f8; border-radius: 6px; outline: none;
+        }
+        #chatInput:focus { box-shadow: 0 0 8px rgba(0,255,136,0.3); }
+
+        /* Function panel */
+        #functionPanel {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.9); border: 1px solid #f80; border-radius: 8px;
+            padding: 12px 20px; color: #f80; font-size: 13px; z-index: 15;
+            display: none; max-width: 500px; max-height: 300px; overflow-y: auto;
+            direction: auto;
+            unicode-bidi: plaintext;
+        }
+        #functionPanel .fp-title {
+            font-size: 16px; font-weight: bold; color: #fff; margin-bottom: 4px;
+        }
+        #functionPanel .fp-sub { color: #888; margin-bottom: 8px; font-size: 12px; }
+        .fn-item { padding: 2px 0; border-bottom: 1px solid rgba(255,136,0,0.15); }
+        .fn-name { color: #ff8800; font-weight: bold; direction: auto; unicode-bidi: plaintext; }
+        .fn-line { color: #666; font-size: 11px; }
+
+        /* Analytics panel */
+        #analyticsPanel {
+            position: fixed; top: 50%; right: 20px; transform: translateY(-50%);
+            background: rgba(0,0,0,0.92); border: 1px solid #0f8; border-radius: 8px;
+            padding: 14px 18px; color: #0f8; font-size: 12px; z-index: 18;
+            display: none; width: 260px; max-height: 80vh; overflow-y: auto;
+            pointer-events: auto;
+        }
+        #analyticsPanel .ap-title { font-size: 16px; font-weight: bold; color: #fff; margin-bottom: 8px; }
+        #analyticsPanel .ap-section { color: #888; font-size: 11px; margin-top: 10px; margin-bottom: 4px; border-top: 1px solid #333; padding-top: 6px; }
+        .ap-btn {
+            display: block; width: 100%; padding: 6px 8px; margin: 3px 0;
+            font-family: 'Courier New', monospace; font-size: 12px;
+            background: rgba(0,255,136,0.08); color: #0f8; border: 1px solid #333;
+            cursor: pointer; text-align: left;
+        }
+        .ap-btn:hover { background: rgba(0,255,136,0.2); border-color: #0f8; }
+        .ap-btn.active { background: rgba(0,255,136,0.25); border-color: #0f8; color: #fff; }
+        .ap-result { color: #8f8; font-size: 11px; padding: 2px 0; cursor: pointer; }
+        .ap-result:hover { color: #fff; }
+        #analyticsResults { margin-top: 6px; max-height: 200px; overflow-y: auto; }
+        .ide-btn {
+            display:flex; align-items:center; gap:10px;
+            padding:10px 14px; font-size:13px; font-family:'Courier New', monospace;
+            background:rgba(0,255,136,0.07); color:#0f8; border:1px solid #333;
+            border-radius:6px; cursor:pointer; text-align:left; width:100%;
+        }
+        .ide-btn:hover { background:rgba(0,255,136,0.18); border-color:#0f8; color:#fff; }
+        .ide-btn .ide-icon { font-size:18px; }
+
+        /* Player list */
+        #playerList {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9); border: 1px solid #0f8; border-radius: 8px;
+            padding: 16px 24px; color: #0f8; font-size: 14px; z-index: 20;
+            display: none; min-width: 200px;
+        }
+        #playerList .pl-title { font-size: 18px; font-weight: bold; color: #fff; margin-bottom: 8px; }
+        .player-item { padding: 3px 0; }
+
+        #folderSettingsPanel {
+            display: none;
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #0a0a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+            z-index: 200;
+            min-width: 380px;
+            max-height: 80vh;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+        }
+
+        /* Limitations banner */
+        #limitationsBanner {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(20,10,0,0.92); border: 1px solid #f80; border-radius: 8px;
+            padding: 10px 18px; color: #fa0; font-size: 12px; z-index: 16;
+            display: none; max-width: 520px; text-align: center;
+            box-shadow: 0 0 20px rgba(255,136,0,0.15);
+        }
+        #limitationsBanner .lb-title { font-weight: bold; color: #fff; font-size: 13px; margin-bottom: 4px; }
+        #limitationsBanner .lb-exts { color: #f80; font-size: 11px; margin-bottom: 6px; word-break: break-all; }
+        #limitationsBanner .lb-close {
+            position: absolute; top: 4px; right: 8px; color: #666; cursor: pointer;
+            font-size: 16px; line-height: 1;
+        }
+        #limitationsBanner .lb-close:hover { color: #fff; }
+
+        /* Contact / feedback button */
+        #contactBtn {
+            position: fixed; bottom: 20px; left: 20px;
+            background: rgba(0,0,0,0.85); border: 1px solid #555; border-radius: 6px;
+            padding: 8px 14px; color: #888; font-size: 11px; z-index: 16;
+            cursor: pointer; font-family: 'Courier New', monospace;
+            transition: border-color 0.2s, color 0.2s;
+            display: none;
+        }
+        #contactBtn:hover { border-color: #0f8; color: #0f8; }
+
+        /* Contact modal */
+        #contactModal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95); border: 1px solid #0f8; border-radius: 10px;
+            padding: 20px 28px; z-index: 30; display: none; width: 440px;
+            box-shadow: 0 0 30px rgba(0,255,136,0.15);
+        }
+        #contactModal .cm-title { font-size: 18px; font-weight: bold; color: #fff; margin-bottom: 6px; }
+        #contactModal .cm-sub { color: #888; font-size: 12px; margin-bottom: 12px; }
+        #contactModal textarea {
+            width: 100%; height: 100px; padding: 10px; font-size: 13px;
+            font-family: 'Courier New', monospace; background: rgba(0,255,136,0.05);
+            color: #0f8; border: 1px solid #333; border-radius: 6px; outline: none;
+            resize: none; margin-bottom: 10px;
+        }
+        #contactModal textarea:focus { border-color: #0f8; }
+        #contactModal .cm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .cm-btn {
+            padding: 8px 18px; font-size: 13px; font-family: 'Courier New', monospace;
+            border-radius: 6px; cursor: pointer; font-weight: bold;
+        }
+        .cm-btn-send {
+            background: linear-gradient(180deg, #0c4, #0a3); color: #000; border: 1px solid #0f8;
+        }
+        .cm-btn-send:hover { background: #0f8; }
+        .cm-btn-cancel {
+            background: transparent; color: #666; border: 1px solid #333;
+        }
+        .cm-btn-cancel:hover { color: #fff; border-color: #fff; }
+        .cm-sent { color: #0f8; font-size: 13px; text-align: center; padding: 20px 0; }
+
+        /* Buy Me a Coffee floating button */
+        #bmcBtn {
+            position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 10px 18px; font-size: 13px; font-family: 'Courier New', monospace;
+            background: #ffd700; color: #000; border: none; border-radius: 20px;
+            cursor: pointer; font-weight: bold; text-decoration: none;
+            box-shadow: 0 2px 12px rgba(255,215,0,0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        #bmcBtn:hover { transform: scale(1.05); box-shadow: 0 4px 20px rgba(255,215,0,0.5); }
+
+        #authBlock {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .auth-provider-btn {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            width: 100%;
+            padding: 14px 20px;
+            font-size: 15px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            border: 1px solid;
+            transition: filter 0.15s, transform 0.1s;
+            letter-spacing: 0.5px;
+        }
+        .auth-provider-btn:hover { filter: brightness(1.15); transform: scale(1.01); }
+        .auth-provider-btn:active { transform: scale(0.99); }
+        .auth-provider-btn svg { flex-shrink: 0; }
+        .auth-github-btn {
+            background: #161b22;
+            color: #fff;
+            border-color: #30363d;
+        }
+        .auth-gitlab-btn {
+            background: #1a1a2e;
+            color: #fc6d26;
+            border-color: #fc6d2640;
+        }
+        .auth-logout-btn {
+            background: transparent;
+            color: #555;
+            border-color: #333;
+            font-size: 12px;
+            padding: 8px 20px;
+            justify-content: center;
+        }
+        .auth-logout-btn:hover { color: #f44; border-color: #f44; filter: none; }
+        #authStatus {
+            text-align: center;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            padding: 6px 0 0;
+        }
+        #authStatus.logged-in { color: #0f8; }
+        #authStatus.logged-out { color: #555; }
+        .auth-btn {
+            padding: 8px 14px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            background: rgba(0,255,136,0.08);
+            color: #0f8;
+            border: 1px solid #0a5;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .auth-btn:hover { background: rgba(0,255,136,0.18); }
+
+        #deviceFlowModal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 20000;
+        }
+        #deviceFlowModal .inner {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 520px;
+            background: rgba(0,0,0,0.95);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 18px;
+            font-family: 'Courier New', monospace;
+        }
+        #deviceFlowModal .h {
+            color: #fff;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+        #deviceFlowCode {
+            font-size: 22px;
+            letter-spacing: 3px;
+            padding: 10px 12px;
+            border: 1px solid #0f8;
+            border-radius: 10px;
+            display: inline-block;
+            background: rgba(0,255,136,0.08);
+            color: #0f8;
+            margin: 8px 0 10px;
+        }
+        #deviceFlowHint {
+            color: #777;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+        #deviceFlowActions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        #tourQrModal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75);
+            z-index: 21000;
+        }
+        #tourQrModal .inner {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 360px;
+            background: rgba(0,0,0,0.95);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 18px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+        #tourQrImg {
+            width: 240px;
+            height: 240px;
+            border: 1px solid #222;
+            border-radius: 10px;
+            background: #fff;
+            margin: 10px auto;
+            display: block;
+        }
+        #tourQrLink {
+            display: block;
+            color: #8f8;
+            font-size: 10px;
+            word-break: break-all;
+            margin-top: 8px;
         }
     </style>
 </head>
 <body>
     <div id="startScreen">
-        <h1>CODE EXPLORER</h1>
-        <div class="sub">Fly through your codebase in 3D</div>
-        <div class="stats" id="graphStats">Loading graph data...</div>
-        <button id="startBtn" onclick="startExplorer()">ENTER THE CODE</button>
+        <h1>CODEFLY</h1>
+        <div class="sub">Fly through any codebase in 3D</div>
+
+        <div class="start-section">
+            <div class="start-section-label">🌐 PUBLIC REPO — <span>no login needed</span></div>
+            <input type="text" id="repoInput" placeholder="https://github.com/owner/repo  or  https://gitlab.com/owner/repo" autocomplete="off">
+        </div>
+
+        <div class="start-section">
+            <div class="start-section-label">LOCAL FOLDER — <span>read-only, no upload</span></div>
+            <button class="local-btn" id="localFolderBtn" onclick="loadLocalFolder()">Choose local folder</button>
+            <div id="localFolderStatus" style="display:none; margin-top:8px; color:#888; font-size:11px; line-height:1.4;"></div>
+            <div style="margin-top:8px; color:#555; font-size:11px; line-height:1.4;">
+                Your browser will ask permission to read files; CodeFly never uploads or copies them.
+            </div>
+        </div>
+
+        <div class="start-section">
+            <div class="start-section-label">PRIVATE REPO — <span>connect your account</span></div>
+            <div id="authBlock">
+                <button class="auth-provider-btn auth-github-btn" onclick="loginGitHub()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222 0 1.606-.015 2.896-.015 3.286 0 .315.216.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/></svg>
+                    Connect GitHub
+                </button>
+                <button class="auth-provider-btn auth-gitlab-btn" onclick="loginGitLab()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#fc6d26"><path d="M23.955 13.587l-1.342-4.135-2.664-8.189a.455.455 0 0 0-.867 0L16.418 9.45H7.582L4.918 1.263a.455.455 0 0 0-.867 0L1.386 9.45.044 13.587a.924.924 0 0 0 .331 1.023L12 23.054l11.625-8.443a.924.924 0 0 0 .33-1.024"/></svg>
+                    Connect GitLab
+                </button>
+                <div id="authStatus" class="logged-out">Not connected</div>
+                <button class="auth-provider-btn auth-logout-btn" onclick="logoutAuth()" id="logoutBtn" style="display:none;">Sign out</button>
+            </div>
+        </div>
+
+        <input type="hidden" id="ghTokenInput" value="">
+        <input type="hidden" id="nicknameInput" value="">
+        <div id="loadingBar"><div class="fill"></div></div>
+        <div id="loadError"></div>
+        <div class="stats" id="graphStats"></div>
+        <button id="startBtn" onclick="loadAndStart()" disabled>FLY IN</button>
+        <div id="recentRepos"></div>
         <div class="controls-hint">
-            <span>WASD</span> Move | <span>Mouse</span> Look | <span>Space</span> Up | <span>Ctrl</span> Down<br>
-            <span>Shift</span> Boost | <span>F</span> Toggle Fly/Walk | <span>C</span> 1st/3rd Person<br>
-            <span>Scroll</span> Zoom | <span>ESC</span> Release cursor
+            <span>WASD</span> Move &nbsp;|&nbsp; <span>Mouse</span> Look &nbsp;|&nbsp; <span>Space/Ctrl</span> Up/Down<br>
+            <span>Shift</span> Boost &nbsp;|&nbsp; <span>Click</span> Expand &nbsp;|&nbsp; <span>L</span> Layout &nbsp;|&nbsp; <span>V</span> Orbit/Stack &nbsp;|&nbsp; <span>G</span> Analytics &nbsp;|&nbsp; <span>Ctrl+K</span> Search
         </div>
     </div>
 
     <div id="crosshair" style="display:none;"></div>
+    <div id="hoverTooltip"></div>
 
     <div id="hud" style="display:none;">
-        <div class="title">SUGARSPACE CODEBASE</div>
+        <div class="title">CODE EXPLORER</div>
         <div class="stat">Files: <span id="hudNodes">0</span></div>
         <div class="stat">Dependencies: <span id="hudEdges">0</span></div>
+        <div class="stat">Defs: <span id="hudFunctions">0</span></div>
+        <div class="stat">Online: <span id="onlineCount">0</span></div>
         <div class="stat">Position: <span id="hudPos">0, 0, 0</span></div>
         <div class="stat">Speed: <span id="hudSpeed">1x</span></div>
         <hr style="border-color:#333; margin:6px 0;">
+        <div id="layoutModeBtn" style="color:#ff0; cursor:pointer;" onclick="cycleLayoutMode()">Layout: CLUSTER [L]</div>
         <div><span class="key">WASD</span> Move | <span class="key">Space/Ctrl</span> Up/Down</div>
         <div><span class="key">Shift</span> Boost | <span class="key">F</span> Fly/Walk</div>
-        <div><span class="key">C</span> Camera | <span class="key">ESC</span> Cursor</div>
+        <div><span class="key">C</span> Camera | <span class="key">Click</span> Defs</div>
+        <div><span class="key">Ctrl+K</span> Search | <span class="key">G</span> Analytics</div>
+        <div><span class="key">L</span> Layout | <span class="key">Shift+L</span> Landmark</div>
+        <div><span class="key">V</span> Orbit/Stack | <span class="key">P</span> Folder styles</div>
+        <div><span class="key">Enter</span> Chat | <span class="key">Tab</span> Players</div>
+    </div>
+
+    <div id="motionControls">
+        <div class="mc-title">MOTION</div>
+        <div class="mc-row">
+            <label for="moveSpeedSlider">Move speed</label>
+            <input id="moveSpeedSlider" type="range" min="0.1" max="2" step="0.05" value="0.35">
+        </div>
+        <div class="mc-row">
+            <label for="orbitSpeedSlider">Orbit speed</label>
+            <input id="orbitSpeedSlider" type="range" min="0" max="2" step="0.05" value="0.25">
+        </div>
+        <div class="mc-row">
+            <label for="pauseOrbitCheckbox">Pause orbit</label>
+            <input id="pauseOrbitCheckbox" type="checkbox">
+        </div>
+        <div style="color:#555; font-size:11px; margin-top:6px;">Tip: press <span style="color:#ff0">M</span> to hide/show</div>
     </div>
 
     <div id="fileInfo">
         <div class="filename" id="infoName">-</div>
         <div class="details" id="infoDetails">-</div>
+        <button id="infoOpenBtn" onclick="openIdePickerFromHover()" style="margin-top:6px; padding:4px 12px; font-size:11px; font-family:'Courier New',monospace;background:rgba(0,255,136,0.1); color:#0f8; border:1px solid #0f8; border-radius:4px; cursor:pointer;">Open in editor ↗</button>
+    </div>
+
+    <div id="previewCard" style="display:none; position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.95); border:1px solid #333; border-radius:8px; padding:10px 16px; font-size:11px; font-family:'Courier New',monospace; color:#8f8; z-index:12; pointer-events:none; max-width:560px; white-space:pre; line-height:1.6; box-shadow:0 0 20px rgba(0,0,0,0.5);"></div>
+
+    <div id="functionPanel">
+        <div class="fp-title" id="functionFileName">-</div>
+        <div class="fp-sub"><span id="functionCount">0</span> definitions</div>
+        <div id="functionList"></div>
     </div>
 
     <div id="legend" style="display:none;">
@@ -114,10 +590,155 @@
         <div id="legendItems"></div>
     </div>
 
+    <div id="chatBox">
+        <div id="chatMessages"></div>
+        <input type="text" id="chatInput" placeholder="Type message..." maxlength="200" autocomplete="off">
+    </div>
+
+    <div id="playerList">
+        <div class="pl-title">ONLINE PLAYERS</div>
+        <div id="playerListItems"></div>
+    </div>
+
+    <div id="deviceFlowModal">
+        <div class="inner">
+            <div class="h">GitHub Login</div>
+            <div id="deviceFlowHint">Open the verification page and enter this code:</div>
+            <div id="deviceFlowCode">----</div>
+            <div id="deviceFlowHint">
+                1) Click “Open GitHub verification”
+                <br>
+                2) Paste the code
+                <br>
+                3) Come back here — we’ll finish automatically
+            </div>
+            <div id="deviceFlowActions">
+                <button class="auth-btn" onclick="openDeviceFlowUrl()">Open GitHub verification</button>
+                <button class="auth-btn" onclick="closeDeviceFlow()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="analyticsPanel">
+        <div class="ap-title">CODEFLY LENSES</div>
+        <div class="ap-section">INSIGHTS</div>
+        <button class="ap-btn" onclick="filterOrphans()">Orphan files (dead code)</button>
+        <button class="ap-btn" onclick="filterHubs()">Hub files (most connected)</button>
+        <button class="ap-btn" onclick="filterLargest()">Largest files</button>
+        <button class="ap-btn" onclick="filterCircular()">Circular dependencies</button>
+        <button class="ap-btn" onclick="showBlastRadius()">Blast radius (selected node)</button>
+        <button class="ap-btn" onclick="filterNoDefinitions()">Files with no definitions</button>
+        <div class="ap-section">LENSES</div>
+        <button class="ap-btn" onclick="filterApiSurface()">API surface (high fan-in)</button>
+        <button class="ap-btn" onclick="filterHotPaths()">Hot paths (high fan-in/out)</button>
+        <button class="ap-btn" onclick="filterRiskZones()">Risk zones (large + high fan-in)</button>
+        <button class="ap-btn" onclick="filterEntryPoints()">Entry points (top outbound)</button>
+        <button class="ap-btn" onclick="toggleChurnHeat()">Churn heatmap (latest commits)</button>
+        <button class="ap-btn" onclick="toggleBlameOverlay()">Blame overlay (last author)</button>
+        <div class="ap-section">FILTER BY KIND</div>
+        <button class="ap-btn" onclick="filterByKind('function')">Functions only</button>
+        <button class="ap-btn" onclick="filterByKind('class')">Classes only</button>
+        <button class="ap-btn" onclick="filterByKind('variable')">Variables only</button>
+        <div class="ap-section">FILTER BY LANGUAGE</div>
+        <div id="langFilters"></div>
+        <div class="ap-section">FILTER BY FOLDER</div>
+        <div id="folderFilters"></div>
+        <div class="ap-section">LANDMARKS</div>
+        <div style="color:#666;font-size:11px;margin-bottom:6px;">Press <span style="color:#ff0">Shift+L</span> to save hovered node. Click to fly.</div>
+        <button class="ap-btn" onclick="playLandmarkTour()">Play landmark tour</button>
+        <button class="ap-btn" onclick="exportTourLink()">Copy tour link 🔗</button>
+        <button class="ap-btn" onclick="showTourQr()">Show tour QR 📱</button>
+        <div id="landmarkList" style="margin-top:6px;"></div>
+        <hr style="border-color:#333; margin:8px 0;">
+        <button class="ap-btn" onclick="clearFilters()" style="color:#ff0;border-color:#ff0;">CLEAR ALL FILTERS</button>
+        <div id="analyticsResults"></div>
+    </div>
+
+    <div id="searchOverlay">
+        <input type="text" id="searchInput" placeholder="Search files, functions, classes, variables..." autocomplete="off">
+        <div style="padding:6px 18px;color:#666;font-size:11px;border-bottom:1px solid #111;">Tip: prefix with <span style="color:#ff0">?</span> for intent jump (e.g. ?auth flow)</div>
+        <div id="searchResults"></div>
+    </div>
+
+    <div id="folderSettingsPanel">
+        <div style="color:#fff; font-size:15px; font-weight:bold; margin-bottom:16px; letter-spacing:1px;">📁 FOLDER APPEARANCE</div>
+        <div id="folderSettingsList"></div>
+        <button onclick="closeFolderSettings()" style="margin-top:16px; padding:8px 20px; background:transparent; color:#555; border:1px solid #333; border-radius:6px; cursor:pointer; font-family:'Courier New',monospace; font-size:12px;">Close</button>
+    </div>
+
+    <div id="limitationsBanner">
+        <span class="lb-close" onclick="document.getElementById('limitationsBanner').style.display='none'">&times;</span>
+        <div class="lb-title">Partial Support</div>
+        <div class="lb-exts" id="lbExts"></div>
+        <div>Some file types in this repo aren't fully parsed yet. They appear as nodes but without deep analysis.</div>
+    </div>
+
+    <div id="contactBtn" onclick="openContactModal()">Request language support</div>
+
+    <div id="contactModal">
+        <div class="cm-title">Request Language Support</div>
+        <div class="cm-sub">Tell us which languages or file types you'd like us to support next.</div>
+        <textarea id="contactMessage"></textarea>
+        <div class="cm-actions">
+            <button class="cm-btn cm-btn-cancel" onclick="closeContactModal()">Cancel</button>
+            <button class="cm-btn cm-btn-send" onclick="sendContactMessage()">Send</button>
+        </div>
+    </div>
+
+    <div id="patModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:22000;">
+        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:460px; background:#0a0a0a; border:1px solid #222; border-radius:14px; padding:28px 28px 22px; font-family:'Courier New',monospace;">
+            <div id="patModalTitle" style="color:#fff; font-size:16px; font-weight:bold; margin-bottom:6px;"></div>
+            <div style="color:#555; font-size:11px; margin-bottom:18px;">Paste your Personal Access Token below. It stays in your browser only — never sent to any server.</div>
+            <input type="password" id="patModalInput" autocomplete="off"
+                style="width:100%; padding:12px 14px; font-size:14px; font-family:'Courier New',monospace;
+                background:rgba(0,255,136,0.04); color:#0f8; border:1px solid #222; border-radius:8px;
+                outline:none; margin-bottom:10px; display:block;">
+            <a id="patModalLink" target="_blank" rel="noopener"
+                style="display:inline-block; color:#555; font-size:11px; text-decoration:none; border:1px solid #222;
+                padding:5px 10px; border-radius:6px; margin-bottom:14px;">Create token ↗</a>
+            <div id="patModalError" style="color:#f66; font-size:11px; min-height:16px; margin-bottom:10px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="closePatModal()" style="padding:9px 18px; font-size:12px; font-family:'Courier New',monospace; background:transparent; color:#555; border:1px solid #333; border-radius:8px; cursor:pointer;">Cancel</button>
+                <button onclick="savePatToken()" style="padding:9px 22px; font-size:12px; font-family:'Courier New',monospace; background:linear-gradient(180deg,#0c4,#0a3); color:#000; border:1px solid #0f8; border-radius:8px; cursor:pointer; font-weight:bold;">Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tourQrModal">
+        <div class="inner">
+            <div style="color:#fff; font-size:13px; margin-bottom:8px;">Tour QR</div>
+            <img id="tourQrImg" alt="Tour QR code">
+            <a id="tourQrLink" target="_blank" rel="noopener"></a>
+            <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+                <button class="auth-btn" onclick="closeTourQr()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="idePickerModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.97); border:1px solid #0f8; border-radius:10px; padding:20px 28px; z-index:50; width:360px; box-shadow:0 0 30px rgba(0,255,136,0.2); font-family:'Courier New',monospace;">
+        <div style="font-size:16px; font-weight:bold; color:#fff; margin-bottom:4px;">Open in editor</div>
+        <div id="idePickerPath" style="color:#555; font-size:11px; margin-bottom:14px; word-break:break-all;"></div>
+        <div id="idePickerButtons" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <button onclick="closeIdePicker()" style="margin-top:14px; width:100%; padding:6px; font-size:12px; font-family:'Courier New',monospace; background:transparent; color:#555; border:1px solid #333; border-radius:6px; cursor:pointer;">Cancel</button>
+    </div>
+
     <canvas id="minimap" width="200" height="200" style="display:none;"></canvas>
 
+    <a id="bmcBtn" href="https://buymeacoffee.com/codefly" target="_blank" rel="noopener">☕ Buy Me a Coffee</a>
+
+    <script>
+        window.CODECHAT_OAUTH = {
+            githubClientId: '',
+            gitlabClientId: '',
+            gitlabRedirectUri: window.location.origin + window.location.pathname,
+        };
+        // Set to your Cloudflare Worker URL after `wrangler deploy`
+        // e.g. 'https://codefly-multiplayer.yourname.workers.dev'
+        window.CODEFLY_MULTIPLAYER_HOST = '';
+    </script>
+
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="graph-data.js"></script>
-    <script src="explorer.js"></script>
+    <script src="graph-generator.js?v=5"></script>
+    <script src="explorer.js?v=5"></script>
 </body>
 </html>

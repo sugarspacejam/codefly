@@ -1,2 +1,8 @@
 node_modules/
 .DS_Store
+.tmp-repo*
+graph-data.js
+feedback.json
+codechat.db
+server.js.bak
+.env
