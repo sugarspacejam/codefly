@@ -321,6 +321,8 @@ function filterTree(tree) {
     if (lang) {
       files.push({ path: item.path, size: item.size || 0, lang });
     } else if (ext && !BINARY_EXTENSIONS.has(ext) && !fileName.startsWith('.')) {
+      // Fallback: include unsupported text files as plain nodes (no imports/defs)
+      files.push({ path: item.path, size: item.size || 0, lang: 'unknown', ext });
       skippedExts.add(ext);
     }
   }
