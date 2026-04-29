@@ -83,6 +83,11 @@ const BINARY_EXTENSIONS = new Set([
   '.lock', '.map',
 ]);
 
+const PARTIAL_PARSE_LANGS = new Set(['json', 'yaml', 'markdown', 'xml', 'toml', 'env', 'docker', 'sql']);
+const PARSE_STATUS_FULL = 'full';
+const PARSE_STATUS_PARTIAL = 'partial';
+const PARSE_STATUS_UNSUPPORTED = 'unsupported';
+
 function walkDir(dir, skippedExts) {
   const results = [];
   let entries;
@@ -94,16 +99,21 @@ function walkDir(dir, skippedExts) {
   for (const entry of entries) {
     if (entry.name.startsWith('.') && entry.isDirectory()) continue;
     const fullPath = path.join(dir, entry.name);
+    const ext = path.extname(entry.name).toLowerCase();
     if (entry.isDirectory()) {
       if (shouldExcludeDir(entry.name)) continue;
       results.push(...walkDir(fullPath, skippedExts));
-    } else if (SUPPORTED_EXTENSIONS.has(path.extname(entry.name)) || FILENAME_LANG[entry.name]) {
+    } else if (SUPPORTED_EXTENSIONS.has(ext) || FILENAME_LANG[entry.name]) {
       if (EXCLUDED_FILES.has(entry.name)) continue;
-      results.push(fullPath);
+      const fileNameLang = FILENAME_LANG[entry.name];
+      const extLang = LANG_CONFIG[ext] ? LANG_CONFIG[ext].lang : null;
+      results.push({ fullPath, lang: extLang || fileNameLang, ext });
     } else {
-      const ext = path.extname(entry.name).toLowerCase();
-      if (ext && !BINARY_EXTENSIONS.has(ext) && !entry.name.startsWith('.')) {
-        skippedExts.add(ext);
+      if (!entry.name.startsWith('.') && (ext === '' || !BINARY_EXTENSIONS.has(ext))) {
+        if (ext) {
+          skippedExts.add(ext);
+        }
+        results.push({ fullPath, lang: 'unknown', ext });
       }
     }
   }
@@ -523,41 +533,111 @@ function resolveImport(importPath, fromFile, fileSet, lang, rootDir) {
   return null;
 }
 
+function buildPreviewLines(content, maxLines = 8) {
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  return content
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .slice(0, maxLines)
+    .map((line) => (line.length > 120 ? line.substring(0, 120) + '...' : line));
+}
+
+function buildRawPreview(content, maxLines = 3) {
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  return content
+    .split('\n')
+    .slice(0, maxLines)
+    .map((line) => (line.length > 180 ? line.substring(0, 180) + '...' : line));
+}
+
+function getParseProfile(file, content) {
+  const lang = file.lang || 'unknown';
+  const hasContent = typeof content === 'string' && content.length > 0;
+
+  if (lang === 'unknown') {
+    const extLabel = file.ext || 'unknown extension';
+    return {
+      parseStatus: PARSE_STATUS_UNSUPPORTED,
+      parseReason: `No parser configured for ${extLabel}`,
+    };
+  }
+
+  if (!hasContent) {
+    return {
+      parseStatus: PARSE_STATUS_PARTIAL,
+      parseReason: 'Source content unavailable; showing file metadata only',
+    };
+  }
+
+  if (PARTIAL_PARSE_LANGS.has(lang)) {
+    return {
+      parseStatus: PARSE_STATUS_PARTIAL,
+      parseReason: `Lightweight parser mode for ${lang}`,
+    };
+  }
+
+  return {
+    parseStatus: PARSE_STATUS_FULL,
+    parseReason: `Parser active for ${lang}`,
+  };
+}
+
 // ============================================================
 // GENERATE GRAPH (reusable function)
 // ============================================================
 function generateGraph(directory) {
   const skippedExts = new Set();
   const allFiles = walkDir(directory, skippedExts);
-  const fileSet = new Set(allFiles);
+  const fileSet = new Set(allFiles.map((file) => file.fullPath));
 
   const nodes = [];
   const edges = [];
   const langStats = {};
+  const parseSummary = {
+    [PARSE_STATUS_FULL]: 0,
+    [PARSE_STATUS_PARTIAL]: 0,
+    [PARSE_STATUS_UNSUPPORTED]: 0,
+  };
 
   for (const file of allFiles) {
-    const ext = path.extname(file);
-    const basename = path.basename(file);
-    const config = LANG_CONFIG[ext];
-    const lang = config ? config.lang : FILENAME_LANG[basename];
-    if (!lang) continue;
+    const lang = file.lang || 'unknown';
     langStats[lang] = (langStats[lang] || 0) + 1;
 
-    const relPath = path.relative(directory, file);
+    const relPath = path.relative(directory, file.fullPath);
     const folder = path.dirname(relPath).split(path.sep)[0] || '_root';
 
-    const content = fs.readFileSync(file, 'utf-8');
-    const allLines = content.split('\n');
+    let content = '';
+    try {
+      content = fs.readFileSync(file.fullPath, 'utf-8');
+    } catch {
+      content = '';
+    }
+
+    const allLines = content.length > 0 ? content.split('\n') : [];
     const lines = allLines.length;
-    const definitions = extractDefinitionsFromContent(content, lang);
-    const imports = extractImportsFromContent(content, lang);
+    const { parseStatus, parseReason } = getParseProfile(file, content);
+    parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
 
-    const previewLines = allLines
-      .filter(l => l.trim().length > 0)
-      .slice(0, 8)
-      .map(l => l.length > 120 ? l.substring(0, 120) + '...' : l);
+    const definitions = parseStatus === PARSE_STATUS_UNSUPPORTED || content.length === 0
+      ? []
+      : extractDefinitionsFromContent(content, lang);
+    const imports = parseStatus === PARSE_STATUS_UNSUPPORTED || content.length === 0
+      ? new Set()
+      : extractImportsFromContent(content, lang);
 
-    const stat = fs.statSync(file);
+    const previewLines = buildPreviewLines(content);
+    const rawPreview = buildRawPreview(content);
+
+    let fileSize = 0;
+    try {
+      fileSize = fs.statSync(file.fullPath).size;
+    } catch {
+      fileSize = 0;
+    }
 
     nodes.push({
       id: relPath,
@@ -568,11 +648,14 @@ function generateGraph(directory) {
       definitions: definitions,
       lang: lang,
       preview: previewLines,
-      size: stat.size,
+      rawPreview,
+      parseStatus,
+      parseReason,
+      size: fileSize,
     });
 
     for (const imp of imports) {
-      const resolved = resolveImport(imp, file, fileSet, lang, directory);
+      const resolved = resolveImport(imp, file.fullPath, fileSet, lang, directory);
       if (resolved) {
         const targetRel = path.relative(directory, resolved);
         edges.push({ from: relPath, to: targetRel });
@@ -585,6 +668,7 @@ function generateGraph(directory) {
     edges,
     meta: {
       languages: langStats,
+      parseSummary,
       unsupportedExtensions: Array.from(skippedExts).sort(),
       totalFiles: allFiles.length,
       generatedAt: new Date().toISOString(),

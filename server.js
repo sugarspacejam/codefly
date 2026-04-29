@@ -13,22 +13,76 @@ const WS_PORT = parseInt(process.env.WS_PORT, 10) || 8091;
 const graphCache = new Map();
 
 // ============================================================
-// RATE LIMITING — per IP, 10 generates per hour
+// MONETIZATION + RATE LIMITING — plan-aware quotas
 // ============================================================
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW = 60 * 60 * 1000;
-const RATE_LIMIT_MAX = 10;
+const PLAN_LIMITS = {
+  free: {
+    maxGeneratesPerWindow: 10,
+    maxFilesPerGraph: 12000,
+    maxNodesPerGraph: 12000,
+  },
+  pro: {
+    maxGeneratesPerWindow: 200,
+    maxFilesPerGraph: 100000,
+    maxNodesPerGraph: 100000,
+  },
+};
 
-function checkRateLimit(ip) {
-  const now = Date.now();
-  const entry = rateLimits.get(ip);
-  if (!entry || now - entry.start > RATE_LIMIT_WINDOW) {
-    rateLimits.set(ip, { start: now, count: 1 });
-    return true;
+function resolvePlan(req) {
+  const headerValue = req.headers['x-codefly-plan'];
+  if (typeof headerValue === 'string' && headerValue.toLowerCase() === 'pro') {
+    return 'pro';
   }
-  if (entry.count >= RATE_LIMIT_MAX) return false;
+  return 'free';
+}
+
+function checkRateLimit(ip, plan) {
+  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+  const key = `${ip}:${plan}`;
+  const now = Date.now();
+  const entry = rateLimits.get(key);
+  if (!entry || now - entry.start > RATE_LIMIT_WINDOW) {
+    const next = { start: now, count: 1 };
+    rateLimits.set(key, next);
+    return {
+      allowed: true,
+      usage: {
+        plan,
+        windowMs: RATE_LIMIT_WINDOW,
+        used: next.count,
+        limit: limits.maxGeneratesPerWindow,
+        remaining: Math.max(0, limits.maxGeneratesPerWindow - next.count),
+        resetAt: new Date(next.start + RATE_LIMIT_WINDOW).toISOString(),
+      },
+    };
+  }
+  if (entry.count >= limits.maxGeneratesPerWindow) {
+    return {
+      allowed: false,
+      usage: {
+        plan,
+        windowMs: RATE_LIMIT_WINDOW,
+        used: entry.count,
+        limit: limits.maxGeneratesPerWindow,
+        remaining: 0,
+        resetAt: new Date(entry.start + RATE_LIMIT_WINDOW).toISOString(),
+      },
+    };
+  }
   entry.count++;
-  return true;
+  return {
+    allowed: true,
+    usage: {
+      plan,
+      windowMs: RATE_LIMIT_WINDOW,
+      used: entry.count,
+      limit: limits.maxGeneratesPerWindow,
+      remaining: Math.max(0, limits.maxGeneratesPerWindow - entry.count),
+      resetAt: new Date(entry.start + RATE_LIMIT_WINDOW).toISOString(),
+    },
+  };
 }
 
 // ============================================================
@@ -60,10 +114,21 @@ const httpServer = http.createServer(async (req, res) => {
   // ---- API: Generate graph from URL or path ----
   if (urlPath === '/api/generate' && req.method === 'POST') {
     res.setHeader('Content-Type', 'application/json');
+    const plan = resolvePlan(req);
+    const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
 
-    if (!checkRateLimit(clientIp)) {
+    const quotaCheck = checkRateLimit(clientIp, plan);
+    if (!quotaCheck.allowed) {
       res.writeHead(429);
-      res.end(JSON.stringify({ error: 'Rate limit exceeded. Try again in an hour.' }));
+      res.end(JSON.stringify({
+        error: 'Rate limit exceeded. Try again after reset or upgrade your plan.',
+        usage: quotaCheck.usage,
+        monetization: {
+          plan,
+          upgradeRequired: plan === 'free',
+          upgradePath: '/pricing',
+        },
+      }));
       return;
     }
 
@@ -104,10 +169,40 @@ const httpServer = http.createServer(async (req, res) => {
         fs.rmSync(scanDir, { recursive: true });
       }
 
+      const totalFiles = Number(graph.meta && graph.meta.totalFiles ? graph.meta.totalFiles : graph.nodes.length);
+      const totalNodes = Array.isArray(graph.nodes) ? graph.nodes.length : 0;
+      if (totalFiles > limits.maxFilesPerGraph || totalNodes > limits.maxNodesPerGraph) {
+        res.writeHead(402);
+        res.end(JSON.stringify({
+          error: `Plan limit exceeded for ${plan}. Upgrade required for larger repositories.`,
+          usage: quotaCheck.usage,
+          monetization: {
+            plan,
+            upgradeRequired: true,
+            upgradePath: '/pricing',
+            limits,
+            current: {
+              totalFiles,
+              totalNodes,
+            },
+          },
+        }));
+        return;
+      }
+
       graphCache.set(url, graph);
 
       res.writeHead(200);
-      res.end(JSON.stringify(graph));
+      res.end(JSON.stringify({
+        ...graph,
+        usage: quotaCheck.usage,
+        monetization: {
+          plan,
+          limits,
+          upgradePath: '/pricing',
+          upgradeRequired: false,
+        },
+      }));
     } catch (err) {
       console.error('Generate error:', err.message);
       res.writeHead(500);

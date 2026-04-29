@@ -65,6 +65,9 @@ const landmarks = [];
 const collapsedFolders = new Set();
 const FOLDER_PREFS_KEY = 'codefly_folder_prefs_v1';
 const flyTarget = { active: false, from: null, to: null, progress: 0, durationFrames: 120 };
+const PARSE_STATUS_FULL = 'full';
+const PARSE_STATUS_PARTIAL = 'partial';
+const PARSE_STATUS_UNSUPPORTED = 'unsupported';
 const intentLexicon = {
     auth: ['auth', 'login', 'token', 'session', 'jwt', 'oauth', 'password'],
     payments: ['payment', 'billing', 'stripe', 'invoice', 'checkout', 'refund'],
@@ -97,6 +100,36 @@ document.addEventListener('visibilitychange', () => {
 // Reusable objects (avoid GC pressure in hot loops)
 const _tmpColor = new THREE.Color();
 const _tmpVec3 = new THREE.Vector3();
+
+function getNodeParseStatus(node) {
+    if (!node || !node.parseStatus) {
+        return PARSE_STATUS_FULL;
+    }
+    return node.parseStatus;
+}
+
+function getParseStatusMeta(status) {
+    if (status === PARSE_STATUS_UNSUPPORTED) {
+        return { label: 'UNSUPPORTED', color: '#bbbbbb', accent: 0x9a9a9a };
+    }
+    if (status === PARSE_STATUS_PARTIAL) {
+        return { label: 'PARTIAL', color: '#ffd65a', accent: 0xffd65a };
+    }
+    return { label: 'FULL', color: '#8f8', accent: 0x33ff99 };
+}
+
+function getNodePreviewLines(node) {
+    if (!node) {
+        return [];
+    }
+    if (Array.isArray(node.rawPreview) && node.rawPreview.length > 0) {
+        return node.rawPreview;
+    }
+    if (Array.isArray(node.preview) && node.preview.length > 0) {
+        return node.preview.slice(0, 3);
+    }
+    return [];
+}
 
 // Pre-computed adjacency for O(1) edge lookup
 const adjacencyIn = {};
@@ -908,8 +941,11 @@ function init() {
 
     const langCount = graphData.meta && graphData.meta.languages
         ? Object.keys(graphData.meta.languages).length : 1;
+    const parseSummary = graphData.meta && graphData.meta.parseSummary ? graphData.meta.parseSummary : {};
+    const partialCount = Number(parseSummary.partial || 0);
+    const unsupportedCount = Number(parseSummary.unsupported || 0);
     document.getElementById('graphStats').textContent =
-        `${graphData.nodes.length} files | ${graphData.edges.length} deps | ${langCount} languages`;
+        `${graphData.nodes.length} files | ${graphData.edges.length} deps | ${langCount} languages | ${partialCount + unsupportedCount} limited`;
     document.getElementById('hudNodes').textContent = graphData.nodes.length;
     document.getElementById('hudEdges').textContent = graphData.edges.length;
 
@@ -991,8 +1027,13 @@ function buildGraph() {
         if (savedPrefs.color) {
             color = parseInt(savedPrefs.color.replace('#', ''), 16);
         }
+        const parseStatus = getNodeParseStatus(node);
+        if (parseStatus === PARSE_STATUS_UNSUPPORTED) {
+            color = 0x6c6c6c;
+        }
         const size = Math.max(0.5, Math.min(2.5, Math.sqrt(node.lines) * 0.1));
         const hasDefs = node.definitions && node.definitions.length > 0;
+        const opacity = parseStatus === PARSE_STATUS_UNSUPPORTED ? 0.58 : parseStatus === PARSE_STATUS_PARTIAL ? 0.85 : 1;
 
         const geo = new THREE.SphereGeometry(size, 16, 16);
         const mat = new THREE.MeshPhongMaterial({
@@ -1000,6 +1041,8 @@ function buildGraph() {
             emissive: color,
             emissiveIntensity: 0.3,
             shininess: 30,
+            transparent: opacity < 1,
+            opacity,
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(pos.x, pos.y, pos.z);
@@ -1043,6 +1086,19 @@ function buildGraph() {
             const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
             indicator.position.y = -size * 0.9;
             mesh.add(indicator);
+        }
+
+        if (parseStatus !== PARSE_STATUS_FULL) {
+            const parseMeta = getParseStatusMeta(parseStatus);
+            const parseGeo = new THREE.RingGeometry(size * 1.05, size * 1.15, 20);
+            const parseMat = new THREE.MeshBasicMaterial({
+                color: parseMeta.accent,
+                transparent: true,
+                opacity: 0.8,
+            });
+            const parseIndicator = new THREE.Mesh(parseGeo, parseMat);
+            parseIndicator.position.y = size * 0.95;
+            mesh.add(parseIndicator);
         }
 
         if (savedPrefs.shape && savedPrefs.shape !== 'sphere') {
@@ -1373,9 +1429,10 @@ function resolveHoverTarget(intersects) {
 function updateFunctionPanel(node) {
     const panel = document.getElementById('functionPanel');
     const list = document.getElementById('functionList');
+    const parseMeta = getParseStatusMeta(getNodeParseStatus(node));
     panel.style.display = 'block';
     document.getElementById('functionFileName').textContent = node.fullPath;
-    document.getElementById('functionCount').textContent = node.definitions.length;
+    document.getElementById('functionCount').textContent = `${node.definitions.length} definitions · ${parseMeta.label}`;
 
     list.innerHTML = '';
     for (const def of node.definitions) {
@@ -1387,6 +1444,28 @@ function updateFunctionPanel(node) {
         div.onclick = () => openIdePicker(node, def.line);
         list.appendChild(div);
     }
+}
+
+function showNodeFallbackPanel(node) {
+    const panel = document.getElementById('functionPanel');
+    const list = document.getElementById('functionList');
+    const parseMeta = getParseStatusMeta(getNodeParseStatus(node));
+    const parseReason = node.parseReason || 'No parser details available';
+    const previewLines = getNodePreviewLines(node);
+    const previewHtml = previewLines.length > 0
+        ? `<div style="margin-top:8px; color:#aaa; font-size:11px; line-height:1.5;">${previewLines.map((line) => escapeHtml(line)).join('<br>')}</div>`
+        : '<div style="margin-top:8px; color:#666; font-size:11px;">No preview available.</div>';
+
+    panel.style.display = 'block';
+    document.getElementById('functionFileName').textContent = node.fullPath;
+    document.getElementById('functionCount').textContent = `0 definitions · ${parseMeta.label}`;
+    list.innerHTML = `
+        <div class="fn-item" style="border-bottom:none; padding:2px 0 0;">
+            <div style="color:${parseMeta.color}; font-weight:bold; margin-bottom:6px;">${parseMeta.label} PARSE</div>
+            <div style="color:#ccc; font-size:12px; line-height:1.5;">${escapeHtml(parseReason)}</div>
+            ${previewHtml}
+        </div>
+    `;
 }
 
 let fileLayoutMode = false;
@@ -1873,10 +1952,15 @@ function setupControls() {
             selectedNodeId = hoveredNode.id;
             resetCallChainHighlight();
             applyCallChainHighlight(selectedNodeId);
-            toggleFunctionExpansion(hoveredNode.id);
+            if (hoveredNode.definitions && hoveredNode.definitions.length > 0) {
+                toggleFunctionExpansion(hoveredNode.id);
+            } else {
+                showNodeFallbackPanel(hoveredNode);
+            }
         } else {
             selectedNodeId = null;
             resetCallChainHighlight();
+            document.getElementById('functionPanel').style.display = 'none';
         }
     });
 
@@ -2019,9 +2103,11 @@ function updateHover() {
     const outE = adjacencyOut[hoveredNodeId] || 0;
     const fnCount = hoveredNode.definitions ? hoveredNode.definitions.length : 0;
     const sizeLabel = hoveredNode.size ? ` · ${(hoveredNode.size / 1024).toFixed(1)}KB` : '';
+    const parseMeta = getParseStatusMeta(getNodeParseStatus(hoveredNode));
+    const parseLabel = ` <span style="color:${parseMeta.color}">[${parseMeta.label}]</span>`;
     const tooltip = document.getElementById('hoverTooltip');
     if (tooltip) {
-        tooltip.innerHTML = `<span style="color:#fff;font-weight:bold">${escapeHtml(hoveredNode.fullPath)}</span><br><span style="color:#8f8">${hoveredNode.lines} lines${sizeLabel} · ${hoveredNode.lang || ''}</span>  <span style="color:#5cc">↑${inE} ↓${outE}</span>  <span style="color:#f80">${fnCount > 0 ? fnCount + ' defs — click to expand' : 'click to select'}</span>`;
+        tooltip.innerHTML = `<span style="color:#fff;font-weight:bold">${escapeHtml(hoveredNode.fullPath)}</span><br><span style="color:#8f8">${hoveredNode.lines} lines${sizeLabel} · ${hoveredNode.lang || ''}</span>${parseLabel}  <span style="color:#5cc">↑${inE} ↓${outE}</span>  <span style="color:#f80">${fnCount > 0 ? fnCount + ' defs — click to expand' : 'click for file details'}</span>`;
         tooltip.style.display = 'block';
     }
     document.getElementById('previewCard').style.display = 'none';
@@ -3212,20 +3298,32 @@ function loadRecentRepos() {
 // LIMITATIONS & CONTACT
 // ============================================================
 function showLimitations(meta) {
-    const unsupported = meta.unsupportedExtensions;
-    if (!unsupported || unsupported.length === 0) return;
+    const unsupported = Array.isArray(meta.unsupportedExtensions) ? meta.unsupportedExtensions : [];
+    const parseSummary = meta.parseSummary || {};
+    const totalFiles = Number(meta.totalFiles || 0);
+    const partialCount = Number(parseSummary.partial || 0);
+    const unsupportedCount = Number(parseSummary.unsupported || 0);
+    const totalLimited = partialCount + unsupportedCount;
+    if (unsupported.length === 0 && totalLimited === 0) return;
 
     const banner = document.getElementById('limitationsBanner');
     const extsEl = document.getElementById('lbExts');
-    extsEl.textContent = 'Unsupported: ' + unsupported.join(', ');
+    const titleEl = banner.querySelector('.lb-title');
+    if (titleEl) {
+        titleEl.textContent = totalFiles > 0
+            ? `Parser Coverage: ${Math.max(0, totalFiles - unsupportedCount)}/${totalFiles}`
+            : 'Parser Coverage';
+    }
+    const extText = unsupported.length > 0 ? `Unsupported extensions: ${unsupported.join(', ')}` : 'No unknown extensions detected';
+    extsEl.textContent = `${extText} · Partial: ${partialCount} · Unsupported files: ${unsupportedCount}`;
     banner.style.display = 'block';
 
     const contactBtn = document.getElementById('contactBtn');
-    contactBtn.style.display = 'block';
+    contactBtn.style.display = unsupported.length > 0 ? 'block' : 'none';
 
     const textarea = document.getElementById('contactMessage');
     const repoUrl = document.getElementById('repoInput').value.trim();
-    textarea.value = `Hi! I'd love CodeFly to support these file types:\n\n${unsupported.join(', ')}\n\nRepo: ${repoUrl}\n\nThanks!`;
+    textarea.value = `Hi! I'd love CodeFly to support these file types:\n\n${unsupported.join(', ')}\n\nParse summary: partial=${partialCount}, unsupported=${unsupportedCount}\nRepo: ${repoUrl}\n\nThanks!`;
 }
 
 window.openContactModal = function() {

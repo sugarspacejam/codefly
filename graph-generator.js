@@ -41,6 +41,11 @@ const BINARY_EXTENSIONS = new Set([
   '.lock', '.map',
 ]);
 
+const PARTIAL_PARSE_LANGS = new Set(['json', 'yaml', 'markdown', 'xml', 'toml', 'env', 'docker', 'sql']);
+const PARSE_STATUS_FULL = 'full';
+const PARSE_STATUS_PARTIAL = 'partial';
+const PARSE_STATUS_UNSUPPORTED = 'unsupported';
+
 // ============================================================
 // LOCAL FOLDER LOADING (File System Access API)
 // ============================================================
@@ -72,12 +77,15 @@ async function walkLocalFolder(rootHandle, onProgress) {
         const nextPath = path ? `${path}/${entry.name}` : entry.name;
         const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop().toLowerCase() : '';
         const lang = LANG_CONFIG[ext] || FILENAME_LANG[entry.name];
+        const file = await entry.getFile();
         if (lang) {
-          const file = await entry.getFile();
-          files.push({ handle: entry, path: nextPath, size: file.size, lang });
-        } else if (ext && !BINARY_EXTENSIONS.has(ext) && !entry.name.startsWith('.')) {
-          // Keep unsupported extensions for limitations banner
-          files.push({ handle: entry, path: nextPath, size: 0, lang: null, unsupportedExt: ext });
+          files.push({ handle: entry, path: nextPath, size: file.size, lang, ext });
+        } else if (!entry.name.startsWith('.') && (ext === '' || !BINARY_EXTENSIONS.has(ext))) {
+          const unknownFile = { handle: entry, path: nextPath, size: file.size, lang: 'unknown', ext };
+          if (ext) {
+            unknownFile.unsupportedExt = ext;
+          }
+          files.push(unknownFile);
         }
         visited++;
         if (onProgress && visited % 50 === 0) {
@@ -320,10 +328,12 @@ function filterTree(tree) {
 
     if (lang) {
       files.push({ path: item.path, size: item.size || 0, lang });
-    } else if (ext && !BINARY_EXTENSIONS.has(ext) && !fileName.startsWith('.')) {
+    } else if (!fileName.startsWith('.') && (ext === '' || !BINARY_EXTENSIONS.has(ext))) {
       // Fallback: include unsupported text files as plain nodes (no imports/defs)
       files.push({ path: item.path, size: item.size || 0, lang: 'unknown', ext });
-      skippedExts.add(ext);
+      if (ext) {
+        skippedExts.add(ext);
+      }
     }
   }
 
@@ -580,6 +590,96 @@ function normalizePath(p) {
   return parts.join('/');
 }
 
+function buildPreviewLines(content, maxLines = 8) {
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  return content
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .slice(0, maxLines)
+    .map((line) => (line.length > 120 ? line.substring(0, 120) + '...' : line));
+}
+
+function buildRawPreview(content, maxLines = 3) {
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  return content
+    .split('\n')
+    .slice(0, maxLines)
+    .map((line) => (line.length > 180 ? line.substring(0, 180) + '...' : line));
+}
+
+function getParseProfile(file, content) {
+  const lang = file.lang || 'unknown';
+  const hasContent = typeof content === 'string' && content.length > 0;
+
+  if (lang === 'unknown') {
+    const extLabel = file.ext || 'unknown extension';
+    return {
+      parseStatus: PARSE_STATUS_UNSUPPORTED,
+      parseReason: `No parser configured for ${extLabel}`,
+    };
+  }
+
+  if (!hasContent) {
+    return {
+      parseStatus: PARSE_STATUS_PARTIAL,
+      parseReason: 'Source content unavailable; showing file metadata only',
+    };
+  }
+
+  if (PARTIAL_PARSE_LANGS.has(lang)) {
+    return {
+      parseStatus: PARSE_STATUS_PARTIAL,
+      parseReason: `Lightweight parser mode for ${lang}`,
+    };
+  }
+
+  return {
+    parseStatus: PARSE_STATUS_FULL,
+    parseReason: `Parser active for ${lang}`,
+  };
+}
+
+function buildNodeFromContent(file, content) {
+  const lang = file.lang || 'unknown';
+  const safeContent = typeof content === 'string' ? content : '';
+  const allLines = safeContent.length > 0 ? safeContent.split('\n') : [];
+  const parts = file.path.split('/');
+  const folder = parts.length > 1 ? parts[0] : '_root';
+  const previewLines = buildPreviewLines(safeContent);
+  const { parseStatus, parseReason } = getParseProfile(file, safeContent);
+
+  const definitions = parseStatus === PARSE_STATUS_UNSUPPORTED || safeContent.length === 0
+    ? []
+    : extractDefinitions(safeContent, lang);
+  const imports = parseStatus === PARSE_STATUS_UNSUPPORTED || safeContent.length === 0
+    ? new Set()
+    : extractImports(safeContent, lang);
+
+  return {
+    node: {
+      id: file.path,
+      label: parts[parts.length - 1],
+      folder,
+      lines: allLines.length,
+      fullPath: file.path,
+      definitions,
+      lang,
+      preview: previewLines,
+      rawPreview: buildRawPreview(safeContent),
+      parseStatus,
+      parseReason,
+      size: file.size || 0,
+    },
+    imports,
+    parseStatus,
+    lang,
+  };
+}
+
 // ============================================================
 // MAIN: generateGraphFromGitHub
 // ============================================================
@@ -591,7 +691,7 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
   const { tree, branch, headers } = await fetchGitHubTree(parsed.owner, parsed.repo, token);
 
   const { files, skippedExts } = filterTree(tree);
-  if (files.length === 0) throw new Error('No supported source files found in this repo');
+  if (files.length === 0) throw new Error('No source files found in this repo after filters');
 
   if (onProgress) onProgress(`Found ${files.length} files. Fetching contents...`);
 
@@ -599,6 +699,11 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
   const nodes = [];
   const edges = [];
   const langStats = {};
+  const parseSummary = {
+    [PARSE_STATUS_FULL]: 0,
+    [PARSE_STATUS_PARTIAL]: 0,
+    [PARSE_STATUS_UNSUPPORTED]: 0,
+  };
 
   // Batch fetch — up to 20 concurrent
   const BATCH_SIZE = 20;
@@ -615,34 +720,10 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
 
     for (const { file, content } of results) {
       fetched++;
-      if (!content) continue;
-
-      const lang = file.lang;
+      const { node, imports, parseStatus, lang } = buildNodeFromContent(file, content);
       langStats[lang] = (langStats[lang] || 0) + 1;
-
-      const parts = file.path.split('/');
-      const folder = parts.length > 1 ? parts[0] : '_root';
-      const allLines = content.split('\n');
-
-      const previewLines = allLines
-        .filter(l => l.trim().length > 0)
-        .slice(0, 8)
-        .map(l => l.length > 120 ? l.substring(0, 120) + '...' : l);
-
-      const definitions = extractDefinitions(content, lang);
-      const imports = extractImports(content, lang);
-
-      nodes.push({
-        id: file.path,
-        label: parts[parts.length - 1],
-        folder: folder,
-        lines: allLines.length,
-        fullPath: file.path,
-        definitions: definitions,
-        lang: lang,
-        preview: previewLines,
-        size: file.size,
-      });
+      parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
+      nodes.push(node);
 
       for (const imp of imports) {
         const resolved = resolveImport(imp, file.path, fileSet, lang);
@@ -660,6 +741,7 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
     edges,
     meta: {
       languages: langStats,
+      parseSummary,
       unsupportedExtensions: Array.from(skippedExts).sort(),
       totalFiles: files.length,
       generatedAt: new Date().toISOString(),
@@ -687,13 +769,13 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
     throw new Error('Local folder scan failed to return file entries');
   }
 
-  const files = rawEntries.filter((f) => f.lang);
+  const files = rawEntries;
   const unsupportedExts = new Set(
-    rawEntries.filter((f) => f.unsupportedExt).map((f) => f.unsupportedExt)
+    rawEntries.filter((f) => f.lang === 'unknown' && f.unsupportedExt).map((f) => f.unsupportedExt)
   );
 
   if (files.length === 0) {
-    throw new Error('No supported source files found in this folder');
+    throw new Error('No source files found in this folder after filters');
   }
 
   if (onProgress) onProgress(`Found ${files.length} files. Reading contents...`);
@@ -702,6 +784,11 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
   const nodes = [];
   const edges = [];
   const langStats = {};
+  const parseSummary = {
+    [PARSE_STATUS_FULL]: 0,
+    [PARSE_STATUS_PARTIAL]: 0,
+    [PARSE_STATUS_UNSUPPORTED]: 0,
+  };
 
   const BATCH_SIZE = 20;
   let processed = 0;
@@ -710,42 +797,23 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
     const batch = files.slice(i, i + BATCH_SIZE);
     const results = await Promise.all(
       batch.map(async (file) => {
-        const blob = await file.handle.getFile();
-        const content = await blob.text();
-        return { file, content };
+        try {
+          const blob = await file.handle.getFile();
+          const content = await blob.text();
+          return { file, content };
+        } catch (e) {
+          console.error('Local file read failed:', file.path, e.message);
+          return { file, content: '' };
+        }
       })
     );
 
     for (const { file, content } of results) {
       processed++;
-      if (!content) continue;
-
-      const lang = file.lang;
+      const { node, imports, parseStatus, lang } = buildNodeFromContent(file, content);
       langStats[lang] = (langStats[lang] || 0) + 1;
-
-      const parts = file.path.split('/');
-      const folder = parts.length > 1 ? parts[0] : '_root';
-      const allLines = content.split('\n');
-
-      const previewLines = allLines
-        .filter(l => l.trim().length > 0)
-        .slice(0, 8)
-        .map(l => l.length > 120 ? l.substring(0, 120) + '...' : l);
-
-      const definitions = extractDefinitions(content, lang);
-      const imports = extractImports(content, lang);
-
-      nodes.push({
-        id: file.path,
-        label: parts[parts.length - 1],
-        folder: folder,
-        lines: allLines.length,
-        fullPath: file.path,
-        definitions: definitions,
-        lang: lang,
-        preview: previewLines,
-        size: file.size,
-      });
+      parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
+      nodes.push(node);
 
       for (const imp of imports) {
         const resolved = resolveImport(imp, file.path, fileSet, lang);
@@ -762,6 +830,7 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
     edges,
     meta: {
       languages: langStats,
+      parseSummary,
       unsupportedExtensions: Array.from(unsupportedExts).sort(),
       totalFiles: files.length,
       generatedAt: new Date().toISOString(),
@@ -792,7 +861,7 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
   });
 
   const { files, skippedExts } = filterTree(normalizedTree);
-  if (files.length === 0) throw new Error('No supported source files found in this repo');
+  if (files.length === 0) throw new Error('No source files found in this repo after filters');
 
   if (onProgress) onProgress(`Found ${files.length} files. Fetching contents...`);
 
@@ -800,6 +869,11 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
   const nodes = [];
   const edges = [];
   const langStats = {};
+  const parseSummary = {
+    [PARSE_STATUS_FULL]: 0,
+    [PARSE_STATUS_PARTIAL]: 0,
+    [PARSE_STATUS_UNSUPPORTED]: 0,
+  };
 
   const BATCH_SIZE = 20;
   let fetched = 0;
@@ -815,34 +889,10 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
 
     for (const { file, content } of results) {
       fetched++;
-      if (!content) continue;
-
-      const lang = file.lang;
+      const { node, imports, parseStatus, lang } = buildNodeFromContent(file, content);
       langStats[lang] = (langStats[lang] || 0) + 1;
-
-      const parts = file.path.split('/');
-      const folder = parts.length > 1 ? parts[0] : '_root';
-      const allLines = content.split('\n');
-
-      const previewLines = allLines
-        .filter((l) => l.trim().length > 0)
-        .slice(0, 8)
-        .map((l) => (l.length > 120 ? l.substring(0, 120) + '...' : l));
-
-      const definitions = extractDefinitions(content, lang);
-      const imports = extractImports(content, lang);
-
-      nodes.push({
-        id: file.path,
-        label: parts[parts.length - 1],
-        folder: folder,
-        lines: allLines.length,
-        fullPath: file.path,
-        definitions: definitions,
-        lang: lang,
-        preview: previewLines,
-        size: file.size,
-      });
+      parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
+      nodes.push(node);
 
       for (const imp of imports) {
         const resolved = resolveImport(imp, file.path, fileSet, lang);
@@ -860,6 +910,7 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
     edges,
     meta: {
       languages: langStats,
+      parseSummary,
       unsupportedExtensions: Array.from(skippedExts).sort(),
       totalFiles: files.length,
       generatedAt: new Date().toISOString(),
