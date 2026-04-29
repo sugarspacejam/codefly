@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "3D Codebase Explorer — fly through any repo with your team",
   "scripts": {
-    "start": "node server.js",
+    "start": "python3 -m http.server 8090",
+    "start:legacy-server": "node server.js",
     "generate": "node generate-graph.js"
   },
   "dependencies": {

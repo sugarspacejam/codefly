@@ -22,14 +22,21 @@ WASD to fly, mouse to look, click to explore. Multiplayer rooms let your team ex
 
 JavaScript, TypeScript, Python, Go, Java, Rust, C#, Ruby, PHP, Swift, Kotlin, Scala, C, C++, HTML, CSS, Vue, Svelte, JSON, YAML, Markdown, Shell, SQL, XML, TOML, Docker.
 
-**Unsupported languages still appear as nodes** — you just won't get function/import extraction. See [CONTRIBUTING.md](CONTRIBUTING.md) to add language support.
+CodeFly also includes unsupported non-binary files as graph nodes in `unsupported` parse mode, so whole repositories still load even when a parser does not exist yet. See [CONTRIBUTING.md](CONTRIBUTING.md) to add language support.
 
 ## Run Locally
 
 ```bash
-npm install
 npm start
 # open http://localhost:8090
+```
+
+`npm start` runs a static file server only (no backend APIs).
+
+If you still want the old Node server, use:
+
+```bash
+npm run start:legacy-server
 ```
 
 ## Deploy
