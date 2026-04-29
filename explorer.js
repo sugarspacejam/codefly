@@ -65,9 +65,9 @@ const landmarks = [];
 const collapsedFolders = new Set();
 const FOLDER_PREFS_KEY = 'codefly_folder_prefs_v1';
 const flyTarget = { active: false, from: null, to: null, progress: 0, durationFrames: 120 };
-const PARSE_STATUS_FULL = 'full';
-const PARSE_STATUS_PARTIAL = 'partial';
-const PARSE_STATUS_UNSUPPORTED = 'unsupported';
+const UI_PARSE_STATUS_FULL = 'full';
+const UI_PARSE_STATUS_PARTIAL = 'partial';
+const UI_PARSE_STATUS_UNSUPPORTED = 'unsupported';
 const intentLexicon = {
     auth: ['auth', 'login', 'token', 'session', 'jwt', 'oauth', 'password'],
     payments: ['payment', 'billing', 'stripe', 'invoice', 'checkout', 'refund'],
@@ -103,16 +103,16 @@ const _tmpVec3 = new THREE.Vector3();
 
 function getNodeParseStatus(node) {
     if (!node || !node.parseStatus) {
-        return PARSE_STATUS_FULL;
+        return UI_PARSE_STATUS_FULL;
     }
     return node.parseStatus;
 }
 
 function getParseStatusMeta(status) {
-    if (status === PARSE_STATUS_UNSUPPORTED) {
+    if (status === UI_PARSE_STATUS_UNSUPPORTED) {
         return { label: 'UNSUPPORTED', color: '#bbbbbb', accent: 0x9a9a9a };
     }
-    if (status === PARSE_STATUS_PARTIAL) {
+    if (status === UI_PARSE_STATUS_PARTIAL) {
         return { label: 'PARTIAL', color: '#ffd65a', accent: 0xffd65a };
     }
     return { label: 'FULL', color: '#8f8', accent: 0x33ff99 };
@@ -1028,12 +1028,12 @@ function buildGraph() {
             color = parseInt(savedPrefs.color.replace('#', ''), 16);
         }
         const parseStatus = getNodeParseStatus(node);
-        if (parseStatus === PARSE_STATUS_UNSUPPORTED) {
+        if (parseStatus === UI_PARSE_STATUS_UNSUPPORTED) {
             color = 0x6c6c6c;
         }
         const size = Math.max(0.5, Math.min(2.5, Math.sqrt(node.lines) * 0.1));
         const hasDefs = node.definitions && node.definitions.length > 0;
-        const opacity = parseStatus === PARSE_STATUS_UNSUPPORTED ? 0.58 : parseStatus === PARSE_STATUS_PARTIAL ? 0.85 : 1;
+        const opacity = parseStatus === UI_PARSE_STATUS_UNSUPPORTED ? 0.58 : parseStatus === UI_PARSE_STATUS_PARTIAL ? 0.85 : 1;
 
         const geo = new THREE.SphereGeometry(size, 16, 16);
         const mat = new THREE.MeshPhongMaterial({
@@ -1088,7 +1088,7 @@ function buildGraph() {
             mesh.add(indicator);
         }
 
-        if (parseStatus !== PARSE_STATUS_FULL) {
+        if (parseStatus !== UI_PARSE_STATUS_FULL) {
             const parseMeta = getParseStatusMeta(parseStatus);
             const parseGeo = new THREE.RingGeometry(size * 1.05, size * 1.15, 20);
             const parseMat = new THREE.MeshBasicMaterial({
