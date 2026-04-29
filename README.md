@@ -34,11 +34,14 @@ npm start
 
 ## Deploy
 
-One-click deploy to Railway using the included `Dockerfile` and `railway.json`:
+Deploy for free with GitHub Pages:
 
-1. Push this repo to GitHub
-2. Go to [railway.app/new](https://railway.app/new) → "Deploy from GitHub repo"
-3. Select your fork — Railway auto-detects the Dockerfile
+1. Push this repo to `main`
+2. In GitHub, open `Settings` → `Pages`
+3. Set `Source` to `GitHub Actions`
+4. The included workflow (`.github/workflows/pages.yml`) publishes `index.html`, `explorer.js`, and `graph-generator.js`
+
+Optional multiplayer (still free): deploy the Cloudflare Worker in `multiplayer/` and set `window.CODEFLY_MULTIPLAYER_HOST` in `index.html`.
 
 ## Support the Project
 
