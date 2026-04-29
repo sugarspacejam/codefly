@@ -44,7 +44,7 @@ One-click deploy to Railway using the included `Dockerfile` and `railway.json`:
 
 If CodeFly helps you, please consider:
 
-- ☕ [Buy Me a Coffee](https://buymeacoffee.com/codefly)
+- 💛 [Donate via PayPal](https://paypal.me/CelestifyLTD)
 - ⭐ Star this repo
 - 🐛 Report bugs / request languages via issues
 
