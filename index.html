@@ -515,6 +515,13 @@
                 </button>
                 <div id="authStatus" class="logged-out">Not connected</div>
                 <button class="auth-provider-btn auth-logout-btn" onclick="logoutAuth()" id="logoutBtn" style="display:none;">Sign out</button>
+                <div style="margin-top:10px; color:#555; font-size:11px; line-height:1.4;">
+                    <strong>OAuth not configured?</strong><br>
+                    1. <a href="https://github.com/settings/applications/new" target="_blank" style="color:#8f8;">Create GitHub OAuth App</a> (Device Flow enabled)<br>
+                    2. <a href="https://gitlab.com/-/profile/applications/new" target="_blank" style="color:#8f8;">Create GitLab Application</a> (read_api scope)<br>
+                    3. Add your client IDs to <code style="background:#222;padding:1px 4px;border-radius:2px;">window.CODECHAT_OAUTH</code> in index.html<br>
+                    <small>Free and no server required — GitHub Device Flow works entirely client-side.</small>
+                </div>
             </div>
         </div>
 
