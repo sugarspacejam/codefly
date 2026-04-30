@@ -392,66 +392,70 @@ window.loginGitHub = async function() {
             throw new Error('GitHub device code response missing required fields');
         }
 
-    githubDeviceFlow = {
-        deviceCode: data.device_code,
-        userCode: data.user_code,
-        verificationUri: data.verification_uri,
-        intervalSec: data.interval,
-        expiresInSec: data.expires_in,
-    };
+        githubDeviceFlow = {
+            deviceCode: data.device_code,
+            userCode: data.user_code,
+            verificationUri: data.verification_uri,
+            intervalSec: data.interval,
+            expiresInSec: data.expires_in,
+        };
 
-    openDeviceFlowModal(githubDeviceFlow.userCode);
+        openDeviceFlowModal(githubDeviceFlow.userCode);
 
-    const start = Date.now();
-    while (true) {
-        const elapsed = (Date.now() - start) / 1000;
-        if (elapsed > githubDeviceFlow.expiresInSec) {
-            throw new Error('GitHub device flow expired. Please try again.');
-        }
-
-        await new Promise((r) => setTimeout(r, githubDeviceFlow.intervalSec * 1000));
-
-        const tokenBody = new URLSearchParams();
-        tokenBody.set('client_id', clientId);
-        tokenBody.set('device_code', githubDeviceFlow.deviceCode);
-        tokenBody.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code');
-
-        const tokenRes = await fetch(`${baseUrl}/github/login/oauth/access_token`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'User-Agent': 'CodeFly',
-            },
-            body: tokenBody,
-        });
-
-        if (!tokenRes.ok) {
-            const text = await tokenRes.text();
-            throw new Error(`GitHub device token request failed: ${tokenRes.status} ${text}`);
-        }
-
-        const tokenData = await tokenRes.json();
-        if (tokenData.error) {
-            if (tokenData.error === 'authorization_pending') {
-                continue;
+        const start = Date.now();
+        while (true) {
+            const elapsed = (Date.now() - start) / 1000;
+            if (elapsed > githubDeviceFlow.expiresInSec) {
+                throw new Error('GitHub device flow expired. Please try again.');
             }
-            if (tokenData.error === 'slow_down') {
-                githubDeviceFlow.intervalSec += 2;
-                continue;
+
+            await new Promise((r) => setTimeout(r, githubDeviceFlow.intervalSec * 1000));
+
+            const tokenBody = new URLSearchParams();
+            tokenBody.set('client_id', clientId);
+            tokenBody.set('device_code', githubDeviceFlow.deviceCode);
+            tokenBody.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code');
+
+            const tokenRes = await fetch(`${baseUrl}/github/login/oauth/access_token`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json',
+                    'User-Agent': 'CodeFly',
+                },
+                body: tokenBody,
+            });
+
+            if (!tokenRes.ok) {
+                const text = await tokenRes.text();
+                throw new Error(`GitHub device token request failed: ${tokenRes.status} ${text}`);
             }
-            throw new Error(`GitHub device flow error: ${tokenData.error}`);
-        }
 
-        if (!tokenData.access_token) {
-            throw new Error('GitHub device flow completed but no access_token returned');
-        }
+            const tokenData = await tokenRes.json();
+            if (tokenData.error) {
+                if (tokenData.error === 'authorization_pending') {
+                    continue;
+                }
+                if (tokenData.error === 'slow_down') {
+                    githubDeviceFlow.intervalSec += 2;
+                    continue;
+                }
+                throw new Error(`GitHub device flow error: ${tokenData.error}`);
+            }
 
-        const login = await fetchGitHubViewerLogin(tokenData.access_token);
-        authState = { provider: 'github', token: tokenData.access_token, userLabel: login };
-        saveAuthState();
+            if (!tokenData.access_token) {
+                throw new Error('GitHub device flow completed but no access_token returned');
+            }
+
+            const login = await fetchGitHubViewerLogin(tokenData.access_token);
+            authState = { provider: 'github', token: tokenData.access_token, userLabel: login };
+            saveAuthState();
+            window.closeDeviceFlow();
+            return;
+        }
+    } catch (err) {
         window.closeDeviceFlow();
-        return;
+        alert('GitHub login failed: ' + err.message);
     }
 };
 
