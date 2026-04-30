@@ -21,8 +21,8 @@ export default {
                 const { code, state } = await request.json();
                 
                 const tokenBody = new URLSearchParams();
-                tokenBody.set('client_id', 'Ov23liHA2jrNtPF0vRUj');
-                tokenBody.set('client_secret', 'c11f8e6772bd6875c4d7170fe0d0b7b73744149e');
+                tokenBody.set('client_id', env.CODEFLY_GITHUB_APP_CLIENT_ID);
+                tokenBody.set('client_secret', env.CODEFLY_GITHUB_APP_CLIENT_SECRET);
                 tokenBody.set('code', code);
                 tokenBody.set('state', state);
                 
@@ -70,8 +70,8 @@ export default {
                 const { code, state } = await request.json();
                 
                 const tokenBody = new URLSearchParams();
-                tokenBody.set('client_id', ''); // Add GitLab client ID if needed
-                tokenBody.set('client_secret', ''); // Add GitLab client secret if needed
+                tokenBody.set('client_id', env.CODEFLY_GITLAB_APP_APPLICATION_ID);
+                tokenBody.set('client_secret', env.CODEFLY_GITLAB_APP_APPLICATION_SECRET);
                 tokenBody.set('code', code);
                 tokenBody.set('grant_type', 'authorization_code');
                 tokenBody.set('redirect_uri', 'https://sugarspacejam.github.io/codefly/');
