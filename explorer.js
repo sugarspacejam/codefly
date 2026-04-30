@@ -364,99 +364,21 @@ window.loginGitHub = async function() {
         return;
     }
 
-    // Use Cloudflare Worker proxy to avoid CORS issues on GitHub Pages
-    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
-    const baseUrl = proxyHost ? proxyHost : '';
-
-    try {
-        const deviceRes = await fetch(`${baseUrl}/github/login/device/code`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'User-Agent': 'CodeFly',
-            },
-            body: JSON.stringify({
-                client_id: clientId,
-                scopes: ['repo'],
-            }),
-        });
-
-        if (!deviceRes.ok) {
-            const text = await deviceRes.text();
-            throw new Error(`GitHub device code request failed: ${deviceRes.status} ${text}`);
-        }
-
-        const data = await deviceRes.json();
-        if (!data.device_code || !data.user_code || !data.verification_uri || !data.interval || !data.expires_in) {
-            throw new Error('GitHub device code response missing required fields');
-        }
-
-        githubDeviceFlow = {
-            deviceCode: data.device_code,
-            userCode: data.user_code,
-            verificationUri: data.verification_uri,
-            intervalSec: data.interval,
-            expiresInSec: data.expires_in,
-        };
-
-        openDeviceFlowModal(githubDeviceFlow.userCode);
-
-        const start = Date.now();
-        while (true) {
-            const elapsed = (Date.now() - start) / 1000;
-            if (elapsed > githubDeviceFlow.expiresInSec) {
-                throw new Error('GitHub device flow expired. Please try again.');
-            }
-
-            await new Promise((r) => setTimeout(r, githubDeviceFlow.intervalSec * 1000));
-
-            const tokenBody = new URLSearchParams();
-            tokenBody.set('client_id', clientId);
-            tokenBody.set('device_code', githubDeviceFlow.deviceCode);
-            tokenBody.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code');
-
-            const tokenRes = await fetch(`${baseUrl}/github/login/oauth/access_token`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Accept': 'application/json',
-                    'User-Agent': 'CodeFly',
-                },
-                body: tokenBody,
-            });
-
-            if (!tokenRes.ok) {
-                const text = await tokenRes.text();
-                throw new Error(`GitHub device token request failed: ${tokenRes.status} ${text}`);
-            }
-
-            const tokenData = await tokenRes.json();
-            if (tokenData.error) {
-                if (tokenData.error === 'authorization_pending') {
-                    continue;
-                }
-                if (tokenData.error === 'slow_down') {
-                    githubDeviceFlow.intervalSec += 2;
-                    continue;
-                }
-                throw new Error(`GitHub device flow error: ${tokenData.error}`);
-            }
-
-            if (!tokenData.access_token) {
-                throw new Error('GitHub device flow completed but no access_token returned');
-            }
-
-            const login = await fetchGitHubViewerLogin(tokenData.access_token);
-            authState = { provider: 'github', token: tokenData.access_token, userLabel: login };
-            saveAuthState();
-            window.closeDeviceFlow();
-            return;
-        }
-    } catch (err) {
-        window.closeDeviceFlow();
-        alert('GitHub login failed: ' + err.message);
-    }
+    // Use regular OAuth redirect flow
+    const state = Math.random().toString(36).substring(7);
+    const redirectUri = window.location.origin + window.location.pathname;
+    
+    const url = new URL('https://github.com/login/oauth/authorize');
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('scope', 'repo');
+    url.searchParams.set('state', state);
+    
+    // Store state for verification
+    sessionStorage.setItem('github_oauth_state', state);
+    
+    // Redirect to GitHub
+    window.location.href = url.toString();
 };
 
 window.loginGitLab = async function() {
@@ -485,6 +407,94 @@ window.loginGitLab = async function() {
 
     window.location.href = url.toString();
 };
+
+async function completeGitHubOAuthFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+    
+    if (error) {
+        alert('GitHub authorization failed: ' + error);
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
+    }
+    
+    if (!code || !state) {
+        return;
+    }
+    
+    // Verify state
+    const storedState = sessionStorage.getItem('github_oauth_state');
+    if (state !== storedState) {
+        alert('Invalid OAuth state. Please try again.');
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
+    }
+    
+    // Clear state
+    sessionStorage.removeItem('github_oauth_state');
+    
+    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
+    const baseUrl = proxyHost ? proxyHost : '';
+    
+    try {
+        // Exchange code for token
+        const tokenRes = await fetch(`${baseUrl}/github/oauth/authorize`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ code, state }),
+        });
+        
+        if (!tokenRes.ok) {
+            throw new Error(`Token exchange failed: ${tokenRes.status}`);
+        }
+        
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) {
+            throw new Error(tokenData.error_description || tokenData.error);
+        }
+        
+        if (!tokenData.access_token) {
+            throw new Error('No access token received');
+        }
+        
+        // Get user info
+        const userRes = await fetch(`${baseUrl}/github/oauth/user`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ access_token: tokenData.access_token }),
+        });
+        
+        if (!userRes.ok) {
+            throw new Error(`Failed to get user info: ${userRes.status}`);
+        }
+        
+        const userData = await userRes.json();
+        
+        // Save auth state
+        authState = { 
+            provider: 'github', 
+            token: tokenData.access_token, 
+            userLabel: userData.login 
+        };
+        saveAuthState();
+        
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+        
+        // Update UI
+        updateAuthUI();
+        
+    } catch (err) {
+        alert('GitHub login failed: ' + err.message);
+        window.history.replaceState({}, '', window.location.pathname);
+    }
+}
 
 async function completeGitLabOAuthFromUrl() {
     const params = new URLSearchParams(window.location.search);
@@ -3427,6 +3437,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
     loadAuthState();
     updateAuthUi();
+    completeGitHubOAuthFromUrl().catch((err) => {
+        console.error('GitHub OAuth error:', err);
+    });
     completeGitLabOAuthFromUrl().catch((err) => {
         const msg = err && err.message ? err.message : 'GitLab OAuth failed';
         const status = document.getElementById('authStatus');
