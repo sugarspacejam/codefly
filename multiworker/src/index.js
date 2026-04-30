@@ -64,6 +64,53 @@ export default {
                     },
                 });
             }
+
+            // Route: /gitlab/oauth/authorize - Exchange code for token
+            if (url.pathname === '/gitlab/oauth/authorize' && request.method === 'POST') {
+                const { code, state } = await request.json();
+                
+                const tokenBody = new URLSearchParams();
+                tokenBody.set('client_id', ''); // Add GitLab client ID if needed
+                tokenBody.set('client_secret', ''); // Add GitLab client secret if needed
+                tokenBody.set('code', code);
+                tokenBody.set('grant_type', 'authorization_code');
+                tokenBody.set('redirect_uri', 'https://sugarspacejam.github.io/codefly/');
+                
+                const response = await fetch('https://gitlab.com/oauth/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: tokenBody.toString(),
+                });
+                
+                const data = await response.json();
+                return new Response(JSON.stringify(data), {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                });
+            }
+
+            // Route: /gitlab/oauth/user - Get user info with token
+            if (url.pathname === '/gitlab/oauth/user' && request.method === 'POST') {
+                const { access_token } = await request.json();
+                
+                const response = await fetch('https://gitlab.com/api/v4/user', {
+                    headers: {
+                        'Authorization': `Bearer ${access_token}`,
+                    },
+                });
+                
+                const data = await response.json();
+                return new Response(JSON.stringify(data), {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                });
+            }
         } catch (error) {
             return new Response(JSON.stringify({ error: error.message }), {
                 status: 500,

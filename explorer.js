@@ -389,22 +389,21 @@ window.loginGitLab = async function() {
         return;
     }
 
-    const verifier = randomString(64);
-    const state = randomString(24);
-    const challenge = await sha256Base64Url(verifier);
-
-    gitlabPkce = { verifier, state };
-    localStorage.setItem('codechat_gitlab_pkce', JSON.stringify(gitlabPkce));
-
+    // Use regular OAuth redirect flow
+    const state = Math.random().toString(36).substring(7);
+    const redirectUri = window.location.origin + window.location.pathname;
+    
     const url = new URL('https://gitlab.com/oauth/authorize');
     url.searchParams.set('client_id', cfg.gitlabClientId);
-    url.searchParams.set('redirect_uri', cfg.gitlabRedirectUri);
+    url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('scope', 'read_api');
     url.searchParams.set('state', state);
-    url.searchParams.set('code_challenge', challenge);
-    url.searchParams.set('code_challenge_method', 'S256');
-
+    
+    // Store state for verification
+    sessionStorage.setItem('gitlab_oauth_state', state);
+    
+    // Redirect to GitLab
     window.location.href = url.toString();
 };
 
@@ -488,7 +487,7 @@ async function completeGitHubOAuthFromUrl() {
         window.history.replaceState({}, '', window.location.pathname);
         
         // Update UI
-        updateAuthUI();
+        updateAuthUi();
         
     } catch (err) {
         alert('GitHub login failed: ' + err.message);
@@ -500,60 +499,88 @@ async function completeGitLabOAuthFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');
-    if (!code && !state) {
+    const error = params.get('error');
+    
+    if (error) {
+        alert('GitLab authorization failed: ' + error);
+        window.history.replaceState({}, '', window.location.pathname);
         return;
     }
-    if (!code) {
-        throw new Error('GitLab OAuth callback missing code');
+    
+    if (!code || !state) {
+        return;
     }
-    if (!state) {
-        throw new Error('GitLab OAuth callback missing state');
+    
+    // Verify state
+    const storedState = sessionStorage.getItem('gitlab_oauth_state');
+    if (state !== storedState) {
+        alert('Invalid OAuth state. Please try again.');
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
     }
-
-    const cfg = getOAuthConfig();
-    const raw = localStorage.getItem('codechat_gitlab_pkce');
-    if (!raw) {
-        throw new Error('Missing GitLab PKCE verifier (localStorage)');
+    
+    // Clear state
+    sessionStorage.removeItem('gitlab_oauth_state');
+    
+    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
+    const baseUrl = proxyHost ? proxyHost : '';
+    
+    try {
+        // Exchange code for token
+        const tokenRes = await fetch(`${baseUrl}/gitlab/oauth/authorize`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ code, state }),
+        });
+        
+        if (!tokenRes.ok) {
+            throw new Error(`Token exchange failed: ${tokenRes.status}`);
+        }
+        
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) {
+            throw new Error(tokenData.error_description || tokenData.error);
+        }
+        
+        if (!tokenData.access_token) {
+            throw new Error('No access token received');
+        }
+        
+        // Get user info
+        const userRes = await fetch(`${baseUrl}/gitlab/oauth/user`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ access_token: tokenData.access_token }),
+        });
+        
+        if (!userRes.ok) {
+            throw new Error(`Failed to get user info: ${userRes.status}`);
+        }
+        
+        const userData = await userRes.json();
+        
+        // Save auth state
+        authState = { 
+            provider: 'gitlab', 
+            token: tokenData.access_token, 
+            userLabel: userData.username 
+        };
+        saveAuthState();
+        
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+        
+        // Update UI
+        updateAuthUi();
+        
+    } catch (err) {
+        alert('GitLab login failed: ' + err.message);
+        window.history.replaceState({}, '', window.location.pathname);
     }
-    const pkce = JSON.parse(raw);
-    if (!pkce || !pkce.verifier || !pkce.state) {
-        throw new Error('Invalid GitLab PKCE verifier data');
-    }
-    if (pkce.state !== state) {
-        throw new Error('GitLab OAuth state mismatch');
-    }
-
-    const body = new URLSearchParams();
-    body.set('client_id', cfg.gitlabClientId);
-    body.set('grant_type', 'authorization_code');
-    body.set('code', code);
-    body.set('redirect_uri', cfg.gitlabRedirectUri);
-    body.set('code_verifier', pkce.verifier);
-
-    const res = await fetch('https://gitlab.com/oauth/token', {
-        method: 'POST',
-        headers: { 'Accept': 'application/json' },
-        body,
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GitLab token exchange failed: ${res.status} ${text}`);
-    }
-
-    const data = await res.json();
-    if (!data.access_token) {
-        throw new Error('GitLab token exchange succeeded but access_token missing');
-    }
-
-    authState = { provider: 'gitlab', token: data.access_token, userLabel: 'user' };
-    saveAuthState();
-    localStorage.removeItem('codechat_gitlab_pkce');
-
-    const cleanUrl = new URL(window.location.href);
-    cleanUrl.searchParams.delete('code');
-    cleanUrl.searchParams.delete('state');
-    window.history.replaceState({}, document.title, cleanUrl.toString());
 }
 
 // Layout
