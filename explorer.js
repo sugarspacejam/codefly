@@ -364,25 +364,33 @@ window.loginGitHub = async function() {
         return;
     }
 
-    const headers = { 'Accept': 'application/json' };
-    const body = new URLSearchParams();
-    body.set('client_id', clientId);
+    // Use Cloudflare Worker proxy to avoid CORS issues on GitHub Pages
+    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
+    const baseUrl = proxyHost ? proxyHost : '';
 
-    const res = await fetch('https://github.com/login/device/code', {
-        method: 'POST',
-        headers,
-        body,
-    });
+    try {
+        const deviceRes = await fetch(`${baseUrl}/github/login/device/code`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'User-Agent': 'CodeFly',
+            },
+            body: JSON.stringify({
+                client_id: clientId,
+                scopes: ['repo'],
+            }),
+        });
 
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GitHub device code request failed: ${res.status} ${text}`);
-    }
+        if (!deviceRes.ok) {
+            const text = await deviceRes.text();
+            throw new Error(`GitHub device code request failed: ${deviceRes.status} ${text}`);
+        }
 
-    const data = await res.json();
-    if (!data.device_code || !data.user_code || !data.verification_uri || !data.interval || !data.expires_in) {
-        throw new Error('GitHub device code response missing required fields');
-    }
+        const data = await deviceRes.json();
+        if (!data.device_code || !data.user_code || !data.verification_uri || !data.interval || !data.expires_in) {
+            throw new Error('GitHub device code response missing required fields');
+        }
 
     githubDeviceFlow = {
         deviceCode: data.device_code,
@@ -408,9 +416,13 @@ window.loginGitHub = async function() {
         tokenBody.set('device_code', githubDeviceFlow.deviceCode);
         tokenBody.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code');
 
-        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+        const tokenRes = await fetch(`${baseUrl}/github/login/oauth/access_token`, {
             method: 'POST',
-            headers,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+                'User-Agent': 'CodeFly',
+            },
             body: tokenBody,
         });
 

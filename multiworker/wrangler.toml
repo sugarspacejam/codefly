@@ -1,0 +1,6 @@
+name = "codefly-oauth-proxy"
+main = "src/index.js"
+compatibility_date = "2023-12-01"
+
+[vars]
+# No vars needed for this simple proxy
