@@ -374,8 +374,9 @@ window.loginGitHub = async function() {
     url.searchParams.set('scope', 'repo');
     url.searchParams.set('state', state);
     
-    // Store state for verification
+    // Store state for verification (both for reliability)
     sessionStorage.setItem('github_oauth_state', state);
+    localStorage.setItem('github_oauth_state', state);
     
     // Redirect to GitHub
     window.location.href = url.toString();
@@ -423,16 +424,19 @@ async function completeGitHubOAuthFromUrl() {
         return;
     }
     
-    // Verify state
-    const storedState = sessionStorage.getItem('github_oauth_state');
+    // Verify state - also check localStorage as fallback
+    const storedState = sessionStorage.getItem('github_oauth_state') || localStorage.getItem('github_oauth_state');
+    console.log('OAuth state check:', { received: state, stored: storedState });
+    
     if (state !== storedState) {
         alert('Invalid OAuth state. Please try again.');
         window.history.replaceState({}, '', window.location.pathname);
         return;
     }
     
-    // Clear state
+    // Clear state from both storage locations
     sessionStorage.removeItem('github_oauth_state');
+    localStorage.removeItem('github_oauth_state');
     
     const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
     const baseUrl = proxyHost ? proxyHost : '';
