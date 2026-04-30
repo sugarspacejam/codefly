@@ -189,8 +189,8 @@ function updateAuthUi() {
         status.className = 'logged-in';
         logoutBtn.style.display = 'inline-block';
         
-        // Show repository browser for GitHub
-        if (authState.provider === 'github') {
+        // Show repository browser for GitHub and GitLab
+        if (authState.provider === 'github' || authState.provider === 'gitlab') {
             authBlock.style.display = 'none';
             repoBrowser.style.display = 'block';
         }
@@ -592,6 +592,11 @@ async function completeGitLabOAuthFromUrl() {
         
         // Update UI
         updateAuthUi();
+        // Load user's repositories
+        if (authState.provider === 'gitlab') {
+            loadGitLabUser();
+            loadGitLabRepos();
+        }
         
     } catch (err) {
         alert('GitLab login failed: ' + err.message);
@@ -623,6 +628,29 @@ async function loadGitHubUser() {
         document.getElementById('userAvatar').src = user.avatar_url;
         document.getElementById('userName').textContent = user.name || user.login;
         document.getElementById('userLogin').textContent = '@' + user.login;
+    } catch (err) {
+        console.error('Failed to load user:', err);
+    }
+}
+
+async function loadGitLabUser() {
+    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
+    const baseUrl = proxyHost ? proxyHost : '';
+    
+    try {
+        const response = await fetch(`${baseUrl}/gitlab/oauth/user`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: authState.token }),
+        });
+        
+        if (!response.ok) throw new Error('Failed to load user');
+        const user = await response.json();
+        
+        // Update UI with user info
+        document.getElementById('userAvatar').src = user.avatar_url;
+        document.getElementById('userName').textContent = user.name || user.username;
+        document.getElementById('userLogin').textContent = '@' + user.username;
     } catch (err) {
         console.error('Failed to load user:', err);
     }
@@ -664,6 +692,38 @@ async function loadGitHubRepos(page = 1) {
     }
 }
 
+async function loadGitLabRepos(page = 1) {
+    try {
+        const response = await fetch(`https://gitlab.com/api/v4/projects?per_page=${reposPerPage}&page=${page}&order_by=updated&sort=desc&membership=true`, {
+            headers: {
+                'Authorization': `Bearer ${authState.token}`,
+            },
+        });
+        
+        if (!response.ok) throw new Error('Failed to load repositories');
+        const repos = await response.json();
+        
+        if (page === 1) {
+            allRepos = repos;
+            document.getElementById('repoList').innerHTML = '';
+        } else {
+            allRepos = [...allRepos, ...repos];
+        }
+        
+        filteredRepos = allRepos;
+        displayGitLabRepos();
+        
+        // Show/hide load more button
+        const loadMoreBtn = document.getElementById('loadMoreRepos');
+        loadMoreBtn.style.display = repos.length === reposPerPage ? 'block' : 'none';
+        
+        currentPage = page;
+    } catch (err) {
+        console.error('Failed to load repositories:', err);
+        document.getElementById('repoList').innerHTML = '<div style="padding:20px; text-align:center; color:#f44;">Failed to load repositories</div>';
+    }
+}
+
 function displayRepos() {
     const repoList = document.getElementById('repoList');
     const searchTerm = document.getElementById('repoSearch').value.toLowerCase();
@@ -681,7 +741,7 @@ function displayRepos() {
     }
     
     repoList.innerHTML = filteredRepos.map(repo => `
-        <div class="repo-item" onclick="selectRepo('${repo.full_name}')" style="padding:12px; border-bottom:1px solid #222; cursor:pointer; transition:background 0.2s;">
+        <div class="repo-item" onclick="selectRepo('${repo.full_name}', 'github')" style="padding:12px; border-bottom:1px solid #222; cursor:pointer; transition:background 0.2s;">
             <div style="display:flex; align-items:start; gap:12px;">
                 <img src="${repo.owner.avatar_url}" style="width:32px; height:32px; border-radius:4px;">
                 <div style="flex:1; min-width:0;">
@@ -706,21 +766,77 @@ function displayRepos() {
     });
 }
 
-function selectRepo(fullName) {
-    document.getElementById('repoInput').value = `https://github.com/${fullName}`;
+function displayGitLabRepos() {
+    const repoList = document.getElementById('repoList');
+    const searchTerm = document.getElementById('repoSearch').value.toLowerCase();
+    
+    // Filter repos
+    filteredRepos = allRepos.filter(repo => 
+        repo.name.toLowerCase().includes(searchTerm) ||
+        repo.description?.toLowerCase().includes(searchTerm) ||
+        repo.owner?.username?.toLowerCase().includes(searchTerm) ||
+        repo.namespace?.full_path?.toLowerCase().includes(searchTerm)
+    );
+    
+    if (filteredRepos.length === 0) {
+        repoList.innerHTML = '<div style="padding:20px; text-align:center; color:#555;">No repositories found</div>';
+        return;
+    }
+    
+    repoList.innerHTML = filteredRepos.map(repo => `
+        <div class="repo-item" onclick="selectRepo('${repo.path_with_namespace}', 'gitlab')" style="padding:12px; border-bottom:1px solid #222; cursor:pointer; transition:background 0.2s;">
+            <div style="display:flex; align-items:start; gap:12px;">
+                <img src="${repo.avatar_url || repo.owner?.avatar_url}" style="width:32px; height:32px; border-radius:4px;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-weight:bold; color:#fff; margin-bottom:4px;">
+                        ${repo.path_with_namespace}
+                        ${repo.visibility === 'private' ? '<span style="background:#f44; color:#fff; padding:2px 6px; border-radius:3px; font-size:10px; margin-left:8px;">Private</span>' : ''}
+                        ${repo.forked_from_project ? '<span style="background:#666; color:#fff; padding:2px 6px; border-radius:3px; font-size:10px; margin-left:4px;">Fork</span>' : ''}
+                    </div>
+                    ${repo.description ? `<div style="color:#888; font-size:12px; margin-bottom:4px; line-height:1.4;">${repo.description}</div>` : ''}
+                    <div style="color:#666; font-size:11px;">
+                        ⭐ ${repo.star_count} · 🍴 ${repo.forks_count} · ${repo.topics?.[0] || 'Unknown'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    // Add hover effect
+    repoList.querySelectorAll('.repo-item').forEach(item => {
+        item.addEventListener('mouseenter', () => item.style.background = '#1a1a1a');
+        item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+    });
+}
+
+function selectRepo(fullName, provider = 'github') {
+    const url = provider === 'gitlab' 
+        ? `https://gitlab.com/${fullName}` 
+        : `https://github.com/${fullName}`;
+    document.getElementById('repoInput').value = url;
     document.getElementById('startBtn').disabled = false;
     loadAndStart();
 }
 
 function loadMoreRepos() {
-    loadGitHubRepos(currentPage + 1);
+    if (authState.provider === 'github') {
+        loadGitHubRepos(currentPage + 1);
+    } else if (authState.provider === 'gitlab') {
+        loadGitLabRepos(currentPage + 1);
+    }
 }
 
 // Add search handler
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('repoSearch');
     if (searchInput) {
-        searchInput.addEventListener('input', displayRepos);
+        searchInput.addEventListener('input', () => {
+            if (authState.provider === 'gitlab') {
+                displayGitLabRepos();
+            } else {
+                displayRepos();
+            }
+        });
     }
 });
 
@@ -3606,10 +3722,13 @@ window.addEventListener('DOMContentLoaded', () => {
     loadAuthState();
     updateAuthUi();
     
-    // Load repositories if already authenticated with GitHub
+    // Load repositories if already authenticated
     if (authState.provider === 'github' && authState.token) {
         loadGitHubUser();
         loadGitHubRepos();
+    } else if (authState.provider === 'gitlab' && authState.token) {
+        loadGitLabUser();
+        loadGitLabRepos();
     }
     
     completeGitHubOAuthFromUrl().catch((err) => {
