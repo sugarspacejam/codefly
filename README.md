@@ -16,7 +16,6 @@ WASD to fly, mouse to look, click to explore. Multiplayer rooms let your team ex
 - 📊 **Analytics lenses** — orphan files, hub files, hot paths, blast radius, churn heatmap, blame overlay
 - 🗺️ **Landmarks & tours** — pin nodes, share tours via QR code
 - 🧭 **Three layout modes** — cluster, galaxy, filesystem
-- ⚡ **IDE integration** — open files directly in VS Code, Cursor, Windsurf, Zed
 
 ## Supported Languages
 
@@ -27,17 +26,17 @@ CodeFly also includes unsupported non-binary files as graph nodes in `unsupporte
 ## Run Locally
 
 ```bash
+# Clone the repo
+git clone https://github.com/sugarspacejam/codefly.git
+cd codefly
+
+# Start the server (enables multiplayer + room persistence)
 npm start
-# open http://localhost:8090
+
+# Open http://localhost:8090
 ```
 
-`npm start` runs a static file server only (no backend APIs).
-
-If you still want the old Node server, use:
-
-```bash
-npm run start:legacy-server
-```
+> Note: The server enables room-scoped multiplayer and persistent chat. For static-only mode, use `npm run start:static`.
 
 ## Deploy
 
