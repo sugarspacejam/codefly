@@ -707,7 +707,7 @@ function displayRepos() {
 }
 
 function selectRepo(fullName) {
-    document.getElementById('repoInput').value = fullName;
+    document.getElementById('repoInput').value = `https://github.com/${fullName}`;
     document.getElementById('startBtn').disabled = false;
     loadAndStart();
 }
