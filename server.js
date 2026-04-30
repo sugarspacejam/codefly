@@ -11,6 +11,7 @@ const WS_PORT = parseInt(process.env.WS_PORT, 10) || 8091;
 // GRAPH CACHE
 // ============================================================
 const graphCache = new Map();
+const roomMessages = new Map();
 
 // ============================================================
 // MONETIZATION + RATE LIMITING — plan-aware quotas
@@ -36,6 +37,14 @@ function resolvePlan(req) {
     return 'pro';
   }
   return 'free';
+}
+
+function getRoomMessages(roomId) {
+  const key = String(roomId || '').trim();
+  if (!roomMessages.has(key)) {
+    roomMessages.set(key, []);
+  }
+  return roomMessages.get(key);
 }
 
 function checkRateLimit(ip, plan) {
@@ -211,6 +220,57 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // ---- API: Room messages ----
+  const roomMessageMatch = urlPath.match(/^\/api\/rooms\/([^/]+)\/messages$/);
+  if (roomMessageMatch) {
+    const roomId = decodeURIComponent(roomMessageMatch[1]);
+    res.setHeader('Content-Type', 'application/json');
+
+    if (req.method === 'GET') {
+      const messages = getRoomMessages(roomId);
+      res.writeHead(200);
+      res.end(JSON.stringify({ roomId, messages }));
+      return;
+    }
+
+    if (req.method === 'POST') {
+      try {
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw || '{}');
+        if (!payload || typeof payload.text !== 'string' || !payload.text.trim()) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'text is required' }));
+          return;
+        }
+        const nickname = typeof payload.nickname === 'string' && payload.nickname.trim()
+          ? payload.nickname.trim().slice(0, 32)
+          : 'Explorer';
+        const entry = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          roomId,
+          nickname,
+          text: payload.text.trim().slice(0, 300),
+          createdAt: new Date().toISOString(),
+        };
+        const messages = getRoomMessages(roomId);
+        messages.push(entry);
+        while (messages.length > 200) {
+          messages.shift();
+        }
+        res.writeHead(201);
+        res.end(JSON.stringify(entry));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    res.writeHead(405);
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
+  }
+
   // ---- API: Feedback ----
   if (urlPath === '/api/feedback' && req.method === 'POST') {
     res.setHeader('Content-Type', 'application/json');
@@ -286,15 +346,36 @@ httpServer.listen(PORT, () => {
 // WEBSOCKET MULTIPLAYER SERVER
 // ============================================================
 const wss = new WebSocketServer({ port: WS_PORT });
-const players = new Map();
+const rooms = new Map();
 let nextId = 1;
+
+function getOrCreateRoom(roomId) {
+  if (!rooms.has(roomId)) {
+    rooms.set(roomId, {
+      players: new Map(),
+    });
+  }
+  return rooms.get(roomId);
+}
+
+function removeRoomIfEmpty(roomId) {
+  const room = rooms.get(roomId);
+  if (room && room.players.size === 0) {
+    rooms.delete(roomId);
+  }
+}
 
 function randomColor() {
   const hue = Math.random() * 360;
   return `hsl(${Math.round(hue)}, 100%, 60%)`;
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const reqUrl = new URL(req.url || '/', `ws://${req.headers.host || `localhost:${WS_PORT}`}`);
+  const roomPathMatch = reqUrl.pathname.match(/^\/room\/(.+)$/);
+  const roomId = roomPathMatch ? decodeURIComponent(roomPathMatch[1]) : 'global';
+  const room = getOrCreateRoom(roomId);
+
   const playerId = nextId++;
   const playerData = {
     id: playerId,
@@ -303,17 +384,19 @@ wss.on('connection', (ws) => {
     position: { x: 0, y: 30, z: 80 },
     rotation: { yaw: 0, pitch: 0 },
   };
-  players.set(playerId, { ws, data: playerData });
+  room.players.set(playerId, { ws, data: playerData });
+  ws._roomId = roomId;
 
-  console.log(`Player ${playerId} connected (${players.size} online)`);
+  console.log(`Player ${playerId} connected to room ${roomId} (${room.players.size} online)`);
 
   ws.send(JSON.stringify({
     type: 'welcome',
     playerId: playerId,
-    players: Array.from(players.values()).map(p => p.data),
+    roomId,
+    players: Array.from(room.players.values()).map(p => p.data),
   }));
 
-  broadcast({
+  broadcastToRoom(roomId, {
     type: 'player_joined',
     player: playerData,
   }, playerId);
@@ -341,7 +424,7 @@ wss.on('connection', (ws) => {
         playerData.nickname = msg.nickname.slice(0, 20);
       }
 
-      broadcast({
+      broadcastToRoom(roomId, {
         type: 'player_update',
         playerId: playerId,
         position: msg.position,
@@ -356,7 +439,7 @@ wss.on('connection', (ws) => {
         return;
       }
       playerData.nickname = msg.nickname.slice(0, 20);
-      broadcast({
+      broadcastToRoom(roomId, {
         type: 'player_nickname',
         playerId: playerId,
         nickname: playerData.nickname,
@@ -368,7 +451,7 @@ wss.on('connection', (ws) => {
         console.error(`Player ${playerId}: invalid chat text`);
         return;
       }
-      broadcast({
+      broadcastToRoom(roomId, {
         type: 'chat',
         playerId: playerId,
         nickname: playerData.nickname,
@@ -378,18 +461,21 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    players.delete(playerId);
-    console.log(`Player ${playerId} disconnected (${players.size} online)`);
-    broadcast({
+    room.players.delete(playerId);
+    console.log(`Player ${playerId} disconnected from room ${roomId} (${room.players.size} online)`);
+    broadcastToRoom(roomId, {
       type: 'player_left',
       playerId: playerId,
     });
+    removeRoomIfEmpty(roomId);
   });
 });
 
-function broadcast(msg, excludeId) {
+function broadcastToRoom(roomId, msg, excludeId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
   const data = JSON.stringify(msg);
-  for (const [id, player] of players) {
+  for (const [id, player] of room.players) {
     if (id === excludeId) continue;
     if (player.ws.readyState === 1) {
       player.ws.send(data);

@@ -1515,15 +1515,27 @@ function updateFunctionOrbits() {
 // Set this to your deployed Cloudflare Worker URL after `wrangler deploy`
 const MULTIPLAYER_HOST = window.CODEFLY_MULTIPLAYER_HOST || '';
 
+function getWsPortFromMeta() {
+    const meta = document.querySelector('meta[name="ws-port"]');
+    if (!meta) return '8091';
+    const value = (meta.getAttribute('content') || '').trim();
+    return value || '8091';
+}
+
+function buildMultiplayerWsUrl(roomId) {
+    if (MULTIPLAYER_HOST) {
+        return `${MULTIPLAYER_HOST.replace(/^http/, 'ws')}/room/${encodeURIComponent(roomId)}`;
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const wsPort = getWsPortFromMeta();
+    return `${protocol}//${host}:${wsPort}/room/${encodeURIComponent(roomId)}`;
+}
+
 // Assign each browser session a stable random color
 const myColor = `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`;
 
 function connectMultiplayer() {
-    if (!MULTIPLAYER_HOST) {
-        document.getElementById('onlineCount').textContent = '1';
-        return;
-    }
-
     if (!graphData || !graphData.meta || !graphData.meta.repo) {
         document.getElementById('onlineCount').textContent = '1';
         return;
@@ -1534,8 +1546,8 @@ function connectMultiplayer() {
         return;
     }
 
-    const roomId = encodeURIComponent(graphData.meta.repo);
-    const wsUrl = `${MULTIPLAYER_HOST.replace(/^http/, 'ws')}/room/${roomId}`;
+    const roomId = graphData.meta.repo;
+    const wsUrl = buildMultiplayerWsUrl(roomId);
 
     ws = new WebSocket(wsUrl);
 
