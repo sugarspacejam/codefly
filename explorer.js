@@ -178,22 +178,29 @@ function saveAuthState() {
 }
 
 function updateAuthUi() {
-    const el = document.getElementById('authStatus');
+    const status = document.getElementById('authStatus');
     const logoutBtn = document.getElementById('logoutBtn');
-    if (!el) {
-        return;
+    const authBlock = document.getElementById('authBlock');
+    const repoBrowser = document.getElementById('repoBrowser');
+    if (!status || !logoutBtn || !authBlock || !repoBrowser) return;
+
+    if (authState.provider && authState.token) {
+        status.textContent = `Connected as ${authState.userLabel}`;
+        status.className = 'logged-in';
+        logoutBtn.style.display = 'inline-block';
+        
+        // Show repository browser for GitHub
+        if (authState.provider === 'github') {
+            authBlock.style.display = 'none';
+            repoBrowser.style.display = 'block';
+        }
+    } else {
+        status.textContent = 'Not connected';
+        status.className = 'logged-out';
+        logoutBtn.style.display = 'none';
+        authBlock.style.display = 'block';
+        repoBrowser.style.display = 'none';
     }
-    if (!authState.provider || !authState.token) {
-        el.textContent = 'Not connected — public repos work without login';
-        el.className = 'logged-out';
-        if (logoutBtn) logoutBtn.style.display = 'none';
-        return;
-    }
-    const label = authState.userLabel ? authState.userLabel : authState.provider;
-    const providerIcon = authState.provider === 'github' ? '🐙' : '🦊';
-    el.textContent = `${providerIcon} Connected as ${label}`;
-    el.className = 'logged-in';
-    if (logoutBtn) logoutBtn.style.display = 'flex';
 }
 
 function getGitHubTokenForApi() {
@@ -492,6 +499,11 @@ async function completeGitHubOAuthFromUrl() {
         
         // Update UI
         updateAuthUi();
+        // Load user's repositories
+        if (authState.provider === 'github') {
+            loadGitHubUser();
+            loadGitHubRepos();
+        }
         
     } catch (err) {
         alert('GitHub login failed: ' + err.message);
@@ -586,6 +598,131 @@ async function completeGitLabOAuthFromUrl() {
         window.history.replaceState({}, '', window.location.pathname);
     }
 }
+
+// GitHub Repository Browser
+let allRepos = [];
+let filteredRepos = [];
+let currentPage = 1;
+const reposPerPage = 30;
+
+async function loadGitHubUser() {
+    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
+    const baseUrl = proxyHost ? proxyHost : '';
+    
+    try {
+        const response = await fetch(`${baseUrl}/github/oauth/user`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: authState.token }),
+        });
+        
+        if (!response.ok) throw new Error('Failed to load user');
+        const user = await response.json();
+        
+        // Update UI with user info
+        document.getElementById('userAvatar').src = user.avatar_url;
+        document.getElementById('userName').textContent = user.name || user.login;
+        document.getElementById('userLogin').textContent = '@' + user.login;
+    } catch (err) {
+        console.error('Failed to load user:', err);
+    }
+}
+
+async function loadGitHubRepos(page = 1) {
+    const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
+    const baseUrl = proxyHost ? proxyHost : '';
+    
+    try {
+        const response = await fetch(`https://api.github.com/user/repos?per_page=${reposPerPage}&page=${page}&sort=updated&type=all`, {
+            headers: {
+                'Authorization': `Bearer ${authState.token}`,
+                'Accept': 'application/vnd.github.v3+json',
+            },
+        });
+        
+        if (!response.ok) throw new Error('Failed to load repositories');
+        const repos = await response.json();
+        
+        if (page === 1) {
+            allRepos = repos;
+            document.getElementById('repoList').innerHTML = '';
+        } else {
+            allRepos = [...allRepos, ...repos];
+        }
+        
+        filteredRepos = allRepos;
+        displayRepos();
+        
+        // Show/hide load more button
+        const loadMoreBtn = document.getElementById('loadMoreRepos');
+        loadMoreBtn.style.display = repos.length === reposPerPage ? 'block' : 'none';
+        
+        currentPage = page;
+    } catch (err) {
+        console.error('Failed to load repositories:', err);
+        document.getElementById('repoList').innerHTML = '<div style="padding:20px; text-align:center; color:#f44;">Failed to load repositories</div>';
+    }
+}
+
+function displayRepos() {
+    const repoList = document.getElementById('repoList');
+    const searchTerm = document.getElementById('repoSearch').value.toLowerCase();
+    
+    // Filter repos
+    filteredRepos = allRepos.filter(repo => 
+        repo.name.toLowerCase().includes(searchTerm) ||
+        repo.description?.toLowerCase().includes(searchTerm) ||
+        repo.owner.login.toLowerCase().includes(searchTerm)
+    );
+    
+    if (filteredRepos.length === 0) {
+        repoList.innerHTML = '<div style="padding:20px; text-align:center; color:#555;">No repositories found</div>';
+        return;
+    }
+    
+    repoList.innerHTML = filteredRepos.map(repo => `
+        <div class="repo-item" onclick="selectRepo('${repo.full_name}')" style="padding:12px; border-bottom:1px solid #222; cursor:pointer; transition:background 0.2s;">
+            <div style="display:flex; align-items:start; gap:12px;">
+                <img src="${repo.owner.avatar_url}" style="width:32px; height:32px; border-radius:4px;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-weight:bold; color:#fff; margin-bottom:4px;">
+                        ${repo.owner.login}/${repo.name}
+                        ${repo.private ? '<span style="background:#f44; color:#fff; padding:2px 6px; border-radius:3px; font-size:10px; margin-left:8px;">Private</span>' : ''}
+                        ${repo.fork ? '<span style="background:#666; color:#fff; padding:2px 6px; border-radius:3px; font-size:10px; margin-left:4px;">Fork</span>' : ''}
+                    </div>
+                    ${repo.description ? `<div style="color:#888; font-size:12px; margin-bottom:4px; line-height:1.4;">${repo.description}</div>` : ''}
+                    <div style="color:#666; font-size:11px;">
+                        ⭐ ${repo.stargazers_count} · 🍴 ${repo.forks_count} · ${repo.language || 'Unknown'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    // Add hover effect
+    repoList.querySelectorAll('.repo-item').forEach(item => {
+        item.addEventListener('mouseenter', () => item.style.background = '#1a1a1a');
+        item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+    });
+}
+
+function selectRepo(fullName) {
+    document.getElementById('repoInput').value = fullName;
+    document.getElementById('startBtn').disabled = false;
+    loadAndStart();
+}
+
+function loadMoreRepos() {
+    loadGitHubRepos(currentPage + 1);
+}
+
+// Add search handler
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('repoSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', displayRepos);
+    }
+});
 
 // Layout
 const SPREAD = 18;
@@ -3468,6 +3605,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
     loadAuthState();
     updateAuthUi();
+    
+    // Load repositories if already authenticated with GitHub
+    if (authState.provider === 'github' && authState.token) {
+        loadGitHubUser();
+        loadGitHubRepos();
+    }
+    
     completeGitHubOAuthFromUrl().catch((err) => {
         console.error('GitHub OAuth error:', err);
     });

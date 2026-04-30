@@ -518,6 +518,27 @@
             </div>
         </div>
 
+        <!-- GitHub Repository Browser (shown when authenticated) -->
+        <div id="repoBrowser" style="display:none;">
+            <div class="start-section-label">YOUR REPOSITORIES</div>
+            <div id="userProfile" style="display:flex; align-items:center; gap:12px; margin-bottom:20px; padding:12px; background:#111; border-radius:8px;">
+                <img id="userAvatar" src="" style="width:48px; height:48px; border-radius:50%;">
+                <div style="flex:1;">
+                    <div id="userName" style="font-weight:bold; color:#fff;"></div>
+                    <div id="userLogin" style="color:#888; font-size:12px;"></div>
+                </div>
+                <button class="auth-provider-btn auth-logout-btn" onclick="logoutAuth()">Sign out</button>
+            </div>
+            
+            <input type="text" id="repoSearch" placeholder="Search repositories..." style="width:100%; padding:10px; background:#111; color:#fff; border:1px solid #333; border-radius:6px; margin-bottom:12px; font-size:14px;">
+            
+            <div id="repoList" style="max-height:400px; overflow-y:auto; border:1px solid #333; border-radius:6px; background:#0a0a0a;">
+                <div style="padding:20px; text-align:center; color:#555;">Loading repositories...</div>
+            </div>
+            
+            <button id="loadMoreRepos" style="display:none; width:100%; margin-top:12px; padding:10px; background:#111; color:#fff; border:1px solid #333; border-radius:6px; cursor:pointer;" onclick="loadMoreRepos()">Load More</button>
+        </div>
+
         <input type="hidden" id="nicknameInput" value="">
         <div id="loadingBar"><div class="fill"></div></div>
         <div id="loadError"></div>
