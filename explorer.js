@@ -182,6 +182,15 @@ function updateAuthUi() {
     const logoutBtn = document.getElementById('logoutBtn');
     const authBlock = document.getElementById('authBlock');
     const repoBrowser = document.getElementById('repoBrowser');
+    const repoInputSection = document.querySelector('.start-section:nth-of-type(1)'); // Public repo section
+    const localFolderSection = document.querySelector('.start-section:nth-of-type(2)'); // Local folder section
+    const privateRepoSection = document.querySelector('.start-section:nth-of-type(3)'); // Private repo section
+    const startBtn = document.getElementById('startBtn');
+    const loadingBar = document.getElementById('loadingBar');
+    const graphStats = document.getElementById('graphStats');
+    const recentRepos = document.getElementById('recentRepos');
+    const controlsHint = document.querySelector('.controls-hint');
+    
     if (!status || !logoutBtn || !authBlock || !repoBrowser) return;
 
     if (authState.provider && authState.token) {
@@ -193,6 +202,16 @@ function updateAuthUi() {
         if (authState.provider === 'github' || authState.provider === 'gitlab') {
             authBlock.style.display = 'none';
             repoBrowser.style.display = 'block';
+            
+            // Hide irrelevant sections when authenticated
+            if (repoInputSection) repoInputSection.style.display = 'none';
+            if (localFolderSection) localFolderSection.style.display = 'none';
+            if (privateRepoSection) privateRepoSection.style.display = 'none';
+            if (startBtn) startBtn.style.display = 'none';
+            if (loadingBar) loadingBar.style.display = 'none';
+            if (graphStats) graphStats.style.display = 'none';
+            if (recentRepos) recentRepos.style.display = 'none';
+            if (controlsHint) controlsHint.style.display = 'none';
         }
     } else {
         status.textContent = 'Not connected';
@@ -200,6 +219,14 @@ function updateAuthUi() {
         logoutBtn.style.display = 'none';
         authBlock.style.display = 'block';
         repoBrowser.style.display = 'none';
+        
+        // Show all sections when not authenticated
+        if (repoInputSection) repoInputSection.style.display = 'block';
+        if (localFolderSection) localFolderSection.style.display = 'block';
+        if (privateRepoSection) privateRepoSection.style.display = 'block';
+        if (startBtn) startBtn.style.display = 'inline-block';
+        if (recentRepos) recentRepos.style.display = 'block';
+        if (controlsHint) controlsHint.style.display = 'block';
     }
 }
 
@@ -276,6 +303,20 @@ window.openDeviceFlowUrl = function() {
 window.logoutAuth = function() {
     authState = { provider: null, token: null, userLabel: null };
     saveAuthState();
+    
+    // Clear all OAuth state from both storage locations
+    sessionStorage.removeItem('github_oauth_state');
+    localStorage.removeItem('github_oauth_state');
+    sessionStorage.removeItem('gitlab_oauth_state');
+    localStorage.removeItem('gitlab_oauth_state');
+    
+    // Clear repository data
+    allRepos = [];
+    filteredRepos = [];
+    currentPage = 1;
+    
+    // Reset UI
+    document.getElementById('repoList').innerHTML = '<div style="padding:20px; text-align:center; color:#555;">Loading repositories...</div>';
 };
 
 function openPatModal(provider) {
@@ -408,8 +449,9 @@ window.loginGitLab = async function() {
     url.searchParams.set('scope', 'read_api');
     url.searchParams.set('state', state);
     
-    // Store state for verification
+    // Store state for verification (both for reliability)
     sessionStorage.setItem('gitlab_oauth_state', state);
+    localStorage.setItem('gitlab_oauth_state', state);
     
     // Redirect to GitLab
     window.location.href = url.toString();
@@ -527,16 +569,19 @@ async function completeGitLabOAuthFromUrl() {
         return;
     }
     
-    // Verify state
-    const storedState = sessionStorage.getItem('gitlab_oauth_state');
+    // Verify state - also check localStorage as fallback
+    const storedState = sessionStorage.getItem('gitlab_oauth_state') || localStorage.getItem('gitlab_oauth_state');
+    console.log('GitLab OAuth state check:', { received: state, stored: storedState });
+    
     if (state !== storedState) {
         alert('Invalid OAuth state. Please try again.');
         window.history.replaceState({}, '', window.location.pathname);
         return;
     }
     
-    // Clear state
+    // Clear state from both storage locations
     sessionStorage.removeItem('gitlab_oauth_state');
+    localStorage.removeItem('gitlab_oauth_state');
     
     const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
     const baseUrl = proxyHost ? proxyHost : '';
@@ -628,6 +673,12 @@ async function loadGitHubUser() {
         document.getElementById('userAvatar').src = user.avatar_url;
         document.getElementById('userName').textContent = user.name || user.login;
         document.getElementById('userLogin').textContent = '@' + user.login;
+        
+        // Set provider badge
+        const badge = document.getElementById('providerBadge');
+        badge.textContent = 'GitHub';
+        badge.style.background = '#238636';
+        badge.style.color = '#fff';
     } catch (err) {
         console.error('Failed to load user:', err);
     }
@@ -651,6 +702,12 @@ async function loadGitLabUser() {
         document.getElementById('userAvatar').src = user.avatar_url;
         document.getElementById('userName').textContent = user.name || user.username;
         document.getElementById('userLogin').textContent = '@' + user.username;
+        
+        // Set provider badge
+        const badge = document.getElementById('providerBadge');
+        badge.textContent = 'GitLab';
+        badge.style.background = '#fc6d26';
+        badge.style.color = '#fff';
     } catch (err) {
         console.error('Failed to load user:', err);
     }

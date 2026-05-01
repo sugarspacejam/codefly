@@ -520,23 +520,23 @@
 
         <!-- GitHub Repository Browser (shown when authenticated) -->
         <div id="repoBrowser" style="display:none;">
-            <div class="start-section-label">YOUR REPOSITORIES</div>
-            <div id="userProfile" style="display:flex; align-items:center; gap:12px; margin-bottom:20px; padding:12px; background:#111; border-radius:8px;">
-                <img id="userAvatar" src="" style="width:48px; height:48px; border-radius:50%;">
+            <div id="userProfile" style="display:flex; align-items:center; gap:16px; margin-bottom:24px; padding:20px; background:linear-gradient(135deg,#161b22 0%,#0d1117 100%); border:1px solid #30363d; border-radius:12px;">
+                <img id="userAvatar" src="" style="width:64px; height:64px; border-radius:50%; border:3px solid #30363d;">
                 <div style="flex:1;">
-                    <div id="userName" style="font-weight:bold; color:#fff;"></div>
-                    <div id="userLogin" style="color:#888; font-size:12px;"></div>
+                    <div id="userName" style="font-weight:bold; color:#fff; font-size:18px;"></div>
+                    <div id="userLogin" style="color:#8b949e; font-size:14px; margin-top:2px;"></div>
+                    <div id="providerBadge" style="display:inline-block; margin-top:8px; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:bold;"></div>
                 </div>
-                <button class="auth-provider-btn auth-logout-btn" onclick="logoutAuth()">Sign out</button>
+                <button class="auth-provider-btn auth-logout-btn" onclick="logoutAuth()" style="padding:8px 20px; font-size:12px;">Sign out</button>
             </div>
             
-            <input type="text" id="repoSearch" placeholder="Search repositories..." style="width:100%; padding:10px; background:#111; color:#fff; border:1px solid #333; border-radius:6px; margin-bottom:12px; font-size:14px;">
+            <input type="text" id="repoSearch" placeholder="Search repositories..." style="width:100%; padding:14px 18px; background:#0d1117; color:#fff; border:1px solid #30363d; border-radius:8px; margin-bottom:16px; font-size:14px; outline:none; transition:border-color 0.2s;">
             
-            <div id="repoList" style="max-height:400px; overflow-y:auto; border:1px solid #333; border-radius:6px; background:#0a0a0a;">
-                <div style="padding:20px; text-align:center; color:#555;">Loading repositories...</div>
+            <div id="repoList" style="max-height:500px; overflow-y:auto; border:1px solid #30363d; border-radius:8px; background:#0d1117;">
+                <div style="padding:40px; text-align:center; color:#8b949e;">Loading repositories...</div>
             </div>
             
-            <button id="loadMoreRepos" style="display:none; width:100%; margin-top:12px; padding:10px; background:#111; color:#fff; border:1px solid #333; border-radius:6px; cursor:pointer;" onclick="loadMoreRepos()">Load More</button>
+            <button id="loadMoreRepos" style="display:none; width:100%; margin-top:16px; padding:12px; background:#0d1117; color:#fff; border:1px solid #30363d; border-radius:8px; cursor:pointer; font-size:14px; transition:background 0.2s;" onclick="loadMoreRepos()">Load More</button>
         </div>
 
         <input type="hidden" id="nicknameInput" value="">
