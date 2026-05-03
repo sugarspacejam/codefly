@@ -488,12 +488,12 @@
         <h1>CODEFLY</h1>
         <div class="sub">Fly through any codebase in 3D</div>
 
-        <div class="start-section">
+        <div id="publicRepoSection" class="start-section">
             <div class="start-section-label">🌐 PUBLIC REPO — <span>no login needed</span></div>
             <input type="text" id="repoInput" placeholder="https://github.com/owner/repo  or  https://gitlab.com/owner/repo" autocomplete="off">
         </div>
 
-        <div class="start-section">
+        <div id="localFolderSection" class="start-section">
             <div class="start-section-label">LOCAL FOLDER — <span>read-only, no upload</span></div>
             <button class="local-btn" id="localFolderBtn" onclick="loadLocalFolder()">Choose local folder</button>
             <div id="localFolderStatus" style="display:none; margin-top:8px; color:#888; font-size:11px; line-height:1.4;"></div>
@@ -502,7 +502,7 @@
             </div>
         </div>
 
-        <div class="start-section">
+        <div id="privateAuthSection" class="start-section">
             <div class="start-section-label">PRIVATE REPO — <span>connect your account</span></div>
             <div id="authBlock">
                 <button class="auth-provider-btn auth-github-btn" onclick="loginGitHub()">
@@ -520,6 +520,8 @@
 
         <!-- GitHub Repository Browser (shown when authenticated) -->
         <div id="repoBrowser" style="display:none;">
+            <div class="start-section-label" style="margin-bottom:10px; color:#8b949e;">CONNECTED WORKSPACE</div>
+            <div style="color:#c9d1d9; font-size:14px; margin-bottom:14px;">Select a repository to start exploring in 3D.</div>
             <div id="userProfile" style="display:flex; align-items:center; gap:16px; margin-bottom:24px; padding:20px; background:linear-gradient(135deg,#161b22 0%,#0d1117 100%); border:1px solid #30363d; border-radius:12px;">
                 <img id="userAvatar" src="" style="width:64px; height:64px; border-radius:50%; border:3px solid #30363d;">
                 <div style="flex:1;">

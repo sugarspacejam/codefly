@@ -151,9 +151,51 @@ let wsReconnectDelay = 1000;
 const remotePlayers = new Map();
 
 const AUTH_STORAGE_KEY = 'codechat_auth_v1';
+const OAUTH_PENDING_KEY = 'codechat_oauth_pending_v1';
 let authState = { provider: null, token: null, userLabel: null };
 let githubDeviceFlow = { deviceCode: null, userCode: null, verificationUri: null, intervalSec: null, expiresInSec: null };
-let gitlabPkce = { verifier: null, state: null };
+
+function setPendingOAuth(provider, state) {
+    const payload = JSON.stringify({ provider, state, createdAt: Date.now() });
+    sessionStorage.setItem(OAUTH_PENDING_KEY, payload);
+    localStorage.setItem(OAUTH_PENDING_KEY, payload);
+}
+
+function getPendingOAuth() {
+    const raw = sessionStorage.getItem(OAUTH_PENDING_KEY) || localStorage.getItem(OAUTH_PENDING_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.provider || !parsed.state) {
+            return null;
+        }
+        const createdAt = Number(parsed.createdAt || 0);
+        if (!Number.isFinite(createdAt) || createdAt <= 0 || (Date.now() - createdAt) > 10 * 60 * 1000) {
+            clearPendingOAuth();
+            return null;
+        }
+        return parsed;
+    } catch {
+        clearPendingOAuth();
+        return null;
+    }
+}
+
+function clearPendingOAuth() {
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+    localStorage.removeItem(OAUTH_PENDING_KEY);
+}
+
+function clearLegacyOAuthState() {
+    sessionStorage.removeItem('github_oauth_state');
+    localStorage.removeItem('github_oauth_state');
+    sessionStorage.removeItem('gitlab_oauth_state');
+    localStorage.removeItem('gitlab_oauth_state');
+}
+
+function cleanOAuthUrl() {
+    window.history.replaceState({}, '', window.location.pathname);
+}
 
 function loadAuthState() {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
@@ -182,9 +224,9 @@ function updateAuthUi() {
     const logoutBtn = document.getElementById('logoutBtn');
     const authBlock = document.getElementById('authBlock');
     const repoBrowser = document.getElementById('repoBrowser');
-    const repoInputSection = document.querySelector('.start-section:nth-of-type(1)'); // Public repo section
-    const localFolderSection = document.querySelector('.start-section:nth-of-type(2)'); // Local folder section
-    const privateRepoSection = document.querySelector('.start-section:nth-of-type(3)'); // Private repo section
+    const repoInputSection = document.getElementById('publicRepoSection');
+    const localFolderSection = document.getElementById('localFolderSection');
+    const privateRepoSection = document.getElementById('privateAuthSection');
     const startBtn = document.getElementById('startBtn');
     const loadingBar = document.getElementById('loadingBar');
     const graphStats = document.getElementById('graphStats');
@@ -303,20 +345,20 @@ window.openDeviceFlowUrl = function() {
 window.logoutAuth = function() {
     authState = { provider: null, token: null, userLabel: null };
     saveAuthState();
-    
-    // Clear all OAuth state from both storage locations
-    sessionStorage.removeItem('github_oauth_state');
-    localStorage.removeItem('github_oauth_state');
-    sessionStorage.removeItem('gitlab_oauth_state');
-    localStorage.removeItem('gitlab_oauth_state');
-    
+
+    clearPendingOAuth();
+    clearLegacyOAuthState();
+
     // Clear repository data
     allRepos = [];
     filteredRepos = [];
     currentPage = 1;
-    
+
     // Reset UI
-    document.getElementById('repoList').innerHTML = '<div style="padding:20px; text-align:center; color:#555;">Loading repositories...</div>';
+    const repoList = document.getElementById('repoList');
+    if (repoList) {
+        repoList.innerHTML = '<div style="padding:40px; text-align:center; color:#8b949e;">Connect an account to load repositories.</div>';
+    }
 };
 
 function openPatModal(provider) {
@@ -382,6 +424,8 @@ window.savePatToken = async function() {
             }
             userLabel = data.username;
         }
+        clearPendingOAuth();
+        clearLegacyOAuthState();
         authState = { provider, token, userLabel };
         saveAuthState();
         window.closePatModal();
@@ -422,9 +466,9 @@ window.loginGitHub = async function() {
     url.searchParams.set('scope', 'repo');
     url.searchParams.set('state', state);
     
-    // Store state for verification (both for reliability)
-    sessionStorage.setItem('github_oauth_state', state);
-    localStorage.setItem('github_oauth_state', state);
+    clearPendingOAuth();
+    clearLegacyOAuthState();
+    setPendingOAuth('github', state);
     
     // Redirect to GitHub
     window.location.href = url.toString();
@@ -449,9 +493,9 @@ window.loginGitLab = async function() {
     url.searchParams.set('scope', 'read_api');
     url.searchParams.set('state', state);
     
-    // Store state for verification (both for reliability)
-    sessionStorage.setItem('gitlab_oauth_state', state);
-    localStorage.setItem('gitlab_oauth_state', state);
+    clearPendingOAuth();
+    clearLegacyOAuthState();
+    setPendingOAuth('gitlab', state);
     
     // Redirect to GitLab
     window.location.href = url.toString();
@@ -462,30 +506,38 @@ async function completeGitHubOAuthFromUrl() {
     const code = params.get('code');
     const state = params.get('state');
     const error = params.get('error');
-    
-    if (error) {
-        alert('GitHub authorization failed: ' + error);
-        window.history.replaceState({}, '', window.location.pathname);
+
+    if (!error && !code && !state) {
         return;
     }
-    
+
+    const pending = getPendingOAuth();
+    if (!pending || pending.provider !== 'github') {
+        return;
+    }
+
+    if (error) {
+        clearPendingOAuth();
+        clearLegacyOAuthState();
+        alert('GitHub authorization failed: ' + error);
+        cleanOAuthUrl();
+        return;
+    }
+
     if (!code || !state) {
         return;
     }
-    
-    // Verify state - also check localStorage as fallback
-    const storedState = sessionStorage.getItem('github_oauth_state') || localStorage.getItem('github_oauth_state');
-    console.log('OAuth state check:', { received: state, stored: storedState });
-    
-    if (state !== storedState) {
-        alert('Invalid OAuth state. Please try again.');
-        window.history.replaceState({}, '', window.location.pathname);
+
+    if (state !== pending.state) {
+        clearPendingOAuth();
+        clearLegacyOAuthState();
+        alert('GitHub OAuth session expired. Please connect again.');
+        cleanOAuthUrl();
         return;
     }
-    
-    // Clear state from both storage locations
-    sessionStorage.removeItem('github_oauth_state');
-    localStorage.removeItem('github_oauth_state');
+
+    clearPendingOAuth();
+    clearLegacyOAuthState();
     
     const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
     const baseUrl = proxyHost ? proxyHost : '';
@@ -537,7 +589,7 @@ async function completeGitHubOAuthFromUrl() {
         saveAuthState();
         
         // Clean URL
-        window.history.replaceState({}, '', window.location.pathname);
+        cleanOAuthUrl();
         
         // Update UI
         updateAuthUi();
@@ -548,8 +600,9 @@ async function completeGitHubOAuthFromUrl() {
         }
         
     } catch (err) {
+        clearPendingOAuth();
         alert('GitHub login failed: ' + err.message);
-        window.history.replaceState({}, '', window.location.pathname);
+        cleanOAuthUrl();
     }
 }
 
@@ -558,30 +611,38 @@ async function completeGitLabOAuthFromUrl() {
     const code = params.get('code');
     const state = params.get('state');
     const error = params.get('error');
-    
-    if (error) {
-        alert('GitLab authorization failed: ' + error);
-        window.history.replaceState({}, '', window.location.pathname);
+
+    if (!error && !code && !state) {
         return;
     }
-    
+
+    const pending = getPendingOAuth();
+    if (!pending || pending.provider !== 'gitlab') {
+        return;
+    }
+
+    if (error) {
+        clearPendingOAuth();
+        clearLegacyOAuthState();
+        alert('GitLab authorization failed: ' + error);
+        cleanOAuthUrl();
+        return;
+    }
+
     if (!code || !state) {
         return;
     }
-    
-    // Verify state - also check localStorage as fallback
-    const storedState = sessionStorage.getItem('gitlab_oauth_state') || localStorage.getItem('gitlab_oauth_state');
-    console.log('GitLab OAuth state check:', { received: state, stored: storedState });
-    
-    if (state !== storedState) {
-        alert('Invalid OAuth state. Please try again.');
-        window.history.replaceState({}, '', window.location.pathname);
+
+    if (state !== pending.state) {
+        clearPendingOAuth();
+        clearLegacyOAuthState();
+        alert('GitLab OAuth session expired. Please connect again.');
+        cleanOAuthUrl();
         return;
     }
-    
-    // Clear state from both storage locations
-    sessionStorage.removeItem('gitlab_oauth_state');
-    localStorage.removeItem('gitlab_oauth_state');
+
+    clearPendingOAuth();
+    clearLegacyOAuthState();
     
     const proxyHost = window.CODEFLY_MULTIPLAYER_HOST || '';
     const baseUrl = proxyHost ? proxyHost : '';
@@ -644,8 +705,42 @@ async function completeGitLabOAuthFromUrl() {
         }
         
     } catch (err) {
+        clearPendingOAuth();
         alert('GitLab login failed: ' + err.message);
-        window.history.replaceState({}, '', window.location.pathname);
+        cleanOAuthUrl();
+    }
+}
+
+async function completeOAuthFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+    if (!code && !state && !error) return;
+
+    const pending = getPendingOAuth();
+    if (!pending) {
+        cleanOAuthUrl();
+        return;
+    }
+    if (pending.provider === 'github') {
+        await completeGitHubOAuthFromUrl();
+        return;
+    }
+    if (pending.provider === 'gitlab') {
+        await completeGitLabOAuthFromUrl();
+        return;
+    }
+    clearPendingOAuth();
+}
+
+function loadConnectedProviderData() {
+    if (authState.provider === 'github' && authState.token) {
+        loadGitHubUser();
+        loadGitHubRepos();
+    } else if (authState.provider === 'gitlab' && authState.token) {
+        loadGitLabUser();
+        loadGitLabRepos();
     }
 }
 
@@ -676,7 +771,7 @@ async function loadGitHubUser() {
         
         // Set provider badge
         const badge = document.getElementById('providerBadge');
-        badge.textContent = 'GitHub';
+        badge.textContent = '🐙 GitHub';
         badge.style.background = '#238636';
         badge.style.color = '#fff';
     } catch (err) {
@@ -705,7 +800,7 @@ async function loadGitLabUser() {
         
         // Set provider badge
         const badge = document.getElementById('providerBadge');
-        badge.textContent = 'GitLab';
+        badge.textContent = '🦊 GitLab';
         badge.style.background = '#fc6d26';
         badge.style.color = '#fff';
     } catch (err) {
@@ -3777,21 +3872,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     loadAuthState();
-    updateAuthUi();
-    
-    // Load repositories if already authenticated
-    if (authState.provider === 'github' && authState.token) {
-        loadGitHubUser();
-        loadGitHubRepos();
-    } else if (authState.provider === 'gitlab' && authState.token) {
-        loadGitLabUser();
-        loadGitLabRepos();
-    }
-    
-    completeGitHubOAuthFromUrl().catch((err) => {
-        console.error('GitHub OAuth error:', err);
-    });
-    completeGitLabOAuthFromUrl().catch((err) => {
+    completeOAuthFromUrl().catch((err) => {
         const msg = err && err.message ? err.message : 'GitLab OAuth failed';
         const status = document.getElementById('authStatus');
         if (status) {
@@ -3803,6 +3884,9 @@ window.addEventListener('DOMContentLoaded', () => {
             loadError.style.display = 'block';
         }
     });
+
+    updateAuthUi();
+    loadConnectedProviderData();
 
     loadRecentRepos();
 });
