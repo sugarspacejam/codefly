@@ -82,6 +82,7 @@ const activeCallChain = {
     outboundEdgeIndices: new Set(),
     inboundEdgeIndices: new Set(),
 };
+let pathSearchIndex = [];
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(0, 0);
 const IDE_EDITORS = [
@@ -1847,6 +1848,82 @@ function applyCallChainHighlight(nodeId) {
     activeCallChain.inboundEdgeIndices = chain.inboundEdgeIndices;
 }
 
+function getNodeById(nodeId) {
+    return graphData.nodes.find((node) => node.id === nodeId) || null;
+}
+
+function getPrimaryDefinitionLabel(node) {
+    if (!node || !node.definitions || node.definitions.length === 0) {
+        return node ? node.label : '';
+    }
+    const fn = node.definitions.find((def) => def.kind === 'function') || node.definitions[0];
+    return `${fn.name}()`;
+}
+
+function selectExecutionPathNode(nodeId, shouldFly = true) {
+    if (!nodeId || !nodeMeshes.has(nodeId)) return;
+    selectedNodeId = nodeId;
+    resetCallChainHighlight();
+    applyCallChainHighlight(nodeId);
+    updateExecutionPathPanel(nodeId);
+    if (shouldFly) {
+        flyToNode(nodeId);
+    }
+}
+
+function updateExecutionPathPanel(nodeId) {
+    const panel = document.getElementById('executionPathPanel');
+    const summary = document.getElementById('executionPathSummary');
+    const results = document.getElementById('executionPathResults');
+    const node = getNodeById(nodeId);
+    if (!panel || !summary || !results || !node) return;
+
+    const outbound = (adjacencyOutList[nodeId] || []).slice(0, 12);
+    const inbound = (adjacencyInList[nodeId] || []).slice(0, 12);
+    summary.textContent = `${node.fullPath} · ${inbound.length} callers/dependents · ${outbound.length} calls/dependencies`;
+    results.innerHTML = '';
+
+    const renderRow = (kind, targetId) => {
+        const target = getNodeById(targetId);
+        if (!target) return;
+        const div = document.createElement('div');
+        div.className = 'ep-row';
+        div.innerHTML = `<span class="ep-kind">${kind}</span>${escapeHtml(getPrimaryDefinitionLabel(target))}<div class="ep-path">${escapeHtml(target.fullPath)}</div>`;
+        div.onclick = () => selectExecutionPathNode(targetId, true);
+        results.appendChild(div);
+    };
+
+    const current = document.createElement('div');
+    current.className = 'ep-row';
+    current.innerHTML = `<span class="ep-kind">SELECTED</span>${escapeHtml(getPrimaryDefinitionLabel(node))}<div class="ep-path">${escapeHtml(node.fullPath)}</div>`;
+    current.onclick = () => flyToNode(nodeId);
+    results.appendChild(current);
+
+    inbound.forEach((id) => renderRow('IN', id));
+    outbound.forEach((id) => renderRow('OUT', id));
+
+    panel.style.display = 'block';
+}
+
+function buildPathSearchIndex() {
+    pathSearchIndex = [];
+    for (const edge of graphData.edges) {
+        const from = getNodeById(edge.from);
+        const to = getNodeById(edge.to);
+        if (!from || !to) continue;
+        const fromLabel = getPrimaryDefinitionLabel(from);
+        const toLabel = getPrimaryDefinitionLabel(to);
+        pathSearchIndex.push({
+            type: 'path',
+            name: `${fromLabel} → ${toLabel}`,
+            path: `${from.fullPath} → ${to.fullPath}`,
+            fromId: from.id,
+            toId: to.id,
+            nodeId: from.id,
+        });
+    }
+}
+
 function resolveHoverTarget(intersects) {
     if (!intersects || intersects.length === 0) {
         return null;
@@ -2423,9 +2500,7 @@ function setupControls() {
             }
             openIdePicker(parentMesh.userData.nodeData, ud.functionLine);
         } else if (hoveredNode) {
-            selectedNodeId = hoveredNode.id;
-            resetCallChainHighlight();
-            applyCallChainHighlight(selectedNodeId);
+            selectExecutionPathNode(hoveredNode.id, false);
             if (hoveredNode.definitions && hoveredNode.definitions.length > 0) {
                 toggleFunctionExpansion(hoveredNode.id);
             } else {
@@ -3263,6 +3338,7 @@ function buildSearchIndex() {
             }
         }
     }
+    buildPathSearchIndex();
 }
 
 function openSearch() {
@@ -3574,18 +3650,25 @@ function performSearch(query) {
     }
 
     const q = query.toLowerCase();
-    const matches = searchIndex
+    const includePaths = q.includes('path') || q.includes('call') || q.includes('execution') || q.includes('flow');
+    const source = includePaths ? searchIndex.concat(pathSearchIndex) : searchIndex;
+    const matches = source
         .filter(item => item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q))
         .slice(0, 30);
 
     for (const match of matches) {
         const div = document.createElement('div');
         div.className = 'search-result';
-        const kindLabel = match.type === 'file' ? 'FILE' : match.type === 'function' ? 'FN' : match.type === 'class' ? 'CLS' : 'VAR';
+        const kindLabel = match.type === 'file' ? 'FILE' : match.type === 'function' ? 'FN' : match.type === 'class' ? 'CLS' : match.type === 'path' ? 'PATH' : 'VAR';
         const lineInfo = match.line ? `:${match.line}` : '';
         div.innerHTML = `<span class="sr-kind">[${kindLabel}]</span> ${escapeHtml(match.name)} <span class="sr-file">${escapeHtml(match.path)}${lineInfo}</span>`;
         div.onclick = () => {
-            flyToNode(match.nodeId);
+            if (match.type === 'path') {
+                selectExecutionPathNode(match.fromId, true);
+            } else {
+                flyToNode(match.nodeId);
+                selectExecutionPathNode(match.nodeId, false);
+            }
             closeSearch();
         };
         results.appendChild(div);

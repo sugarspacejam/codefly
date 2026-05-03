@@ -168,6 +168,18 @@
         .search-result:hover { background: rgba(0,255,136,0.1); color: #fff; }
         .search-result .sr-kind { color: #666; font-size: 11px; }
         .search-result .sr-file { color: #555; font-size: 11px; }
+        #executionPathPanel {
+            position: fixed; right: 15px; bottom: 120px; width: 360px; max-height: 48vh;
+            background: rgba(0,0,0,0.92); border: 1px solid #0f8; border-radius: 10px;
+            box-shadow: 0 0 24px rgba(0,255,136,0.12); z-index: 19; display: none;
+            padding: 14px; overflow-y: auto;
+        }
+        .ep-title { color:#0f8; font-size:13px; font-weight:bold; margin-bottom:4px; letter-spacing:1px; }
+        .ep-sub { color:#666; font-size:11px; line-height:1.4; margin-bottom:10px; }
+        .ep-row { padding:8px 0; border-bottom:1px solid #111; cursor:pointer; color:#aaa; font-size:12px; line-height:1.4; }
+        .ep-row:hover { color:#fff; background:rgba(0,255,136,0.06); }
+        .ep-kind { color:#0f8; font-size:10px; margin-right:6px; }
+        .ep-path { color:#666; font-size:10px; margin-top:2px; word-break:break-all; }
 
         #minimap {
             position: fixed; bottom: 20px; right: 20px; width: 200px; height: 200px;
@@ -676,9 +688,15 @@
     </div>
 
     <div id="searchOverlay">
-        <input type="text" id="searchInput" placeholder="Search files, functions, classes, variables..." autocomplete="off">
-        <div style="padding:6px 18px;color:#666;font-size:11px;border-bottom:1px solid #111;">Tip: prefix with <span style="color:#ff0">?</span> for intent jump (e.g. ?auth flow)</div>
+        <input type="text" id="searchInput" placeholder="Search files, functions, classes, variables, paths..." autocomplete="off">
+        <div style="padding:6px 18px;color:#666;font-size:11px;border-bottom:1px solid #111;">Tip: prefix with <span style="color:#ff0">?</span> for intent jump. Search <span style="color:#ff0">path</span> or <span style="color:#ff0">calls</span> for execution paths.</div>
         <div id="searchResults"></div>
+    </div>
+
+    <div id="executionPathPanel">
+        <div class="ep-title">EXECUTION PATH</div>
+        <div class="ep-sub" id="executionPathSummary">Click a file node or search for paths to highlight expected dependency flow.</div>
+        <div id="executionPathResults"></div>
     </div>
 
     <div id="folderSettingsPanel">
