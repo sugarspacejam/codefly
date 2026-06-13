@@ -9,7 +9,29 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function assertGraphArrayField(graph, fieldName, context) {
+    if (!Array.isArray(graph[fieldName])) {
+        throw new Error(`${context} graph contract violation: ${fieldName} must be an array`);
+    }
+}
+
+function assertGraphDataContract(data, context) {
+    if (!data || typeof data !== 'object') {
+        throw new Error(`${context} graph contract violation: graph payload missing`);
+    }
+    assertGraphArrayField(data, 'nodes', context);
+    assertGraphArrayField(data, 'edges', context);
+    if (!Object.prototype.hasOwnProperty.call(data, 'symbolEdges')) {
+        throw new Error(`${context} graph contract violation: symbolEdges is required`);
+    }
+    assertGraphArrayField(data, 'symbolEdges', context);
+    if (!data.meta || typeof data.meta !== 'object') {
+        throw new Error(`${context} graph contract violation: meta must be an object`);
+    }
+}
+
 let graphData = null;
+let currentRepoUrl = null;
 let scene, camera, renderer;
 let playerGroup;
 let isPointerLocked = false;
@@ -65,6 +87,21 @@ const landmarks = [];
 const collapsedFolders = new Set();
 const FOLDER_PREFS_KEY = 'codefly_folder_prefs_v1';
 const flyTarget = { active: false, from: null, to: null, progress: 0, durationFrames: 120 };
+
+// Code agents
+const agentMeshes = new Map();
+const agents = new Map();
+
+// 3D Code Board
+let codeBoardMesh = null;
+let codeBoardCanvas = null;
+let codeBoardCtx = null;
+let codeBoardTexture = null;
+let codeBoardBackCanvas = null;
+let codeBoardBackCtx = null;
+let codeBoardBackTexture = null;
+let codeBoardScrollOffset = 0;
+let codeBoardTargetLine = 0;
 const UI_PARSE_STATUS_FULL = 'full';
 const UI_PARSE_STATUS_PARTIAL = 'partial';
 const UI_PARSE_STATUS_UNSUPPORTED = 'unsupported';
@@ -83,6 +120,7 @@ const activeCallChain = {
     inboundEdgeIndices: new Set(),
 };
 let pathSearchIndex = [];
+let selectedPathEdgeKey = null;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(0, 0);
 const IDE_EDITORS = [
@@ -153,6 +191,7 @@ const remotePlayers = new Map();
 
 const AUTH_STORAGE_KEY = 'codechat_auth_v1';
 const OAUTH_PENDING_KEY = 'codechat_oauth_pending_v1';
+const RECENT_REPOS_STORAGE_KEY = 'codechat_recent';
 let authState = { provider: null, token: null, userLabel: null };
 let githubDeviceFlow = { deviceCode: null, userCode: null, verificationUri: null, intervalSec: null, expiresInSec: null };
 
@@ -448,6 +487,33 @@ async function fetchGitHubViewerLogin(token) {
     return data.login;
 }
 
+async function readJsonFetchResponse(response, context) {
+    const text = await response.text();
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        throw new Error(`${context} returned a non-JSON response`);
+    }
+    if (!response.ok) {
+        throw new Error(getOAuthResponseError(data, context, response.status));
+    }
+    return data;
+}
+
+function getOAuthResponseError(data, context, status) {
+    if (!data) {
+        return `${context} failed: ${status}`;
+    }
+    if (data.error_description) {
+        return data.error_description;
+    }
+    if (data.error) {
+        return data.error;
+    }
+    return `${context} failed: ${status}`;
+}
+
 window.loginGitHub = async function() {
     const cfg = getOAuthConfig();
     const clientId = cfg.githubClientId;
@@ -553,13 +619,9 @@ async function completeGitHubOAuthFromUrl() {
             body: JSON.stringify({ code, state }),
         });
         
-        if (!tokenRes.ok) {
-            throw new Error(`Token exchange failed: ${tokenRes.status}`);
-        }
-        
-        const tokenData = await tokenRes.json();
+        const tokenData = await readJsonFetchResponse(tokenRes, 'GitHub token exchange');
         if (tokenData.error) {
-            throw new Error(tokenData.error_description || tokenData.error);
+            throw new Error(getOAuthResponseError(tokenData, 'GitHub token exchange', tokenRes.status));
         }
         
         if (!tokenData.access_token) {
@@ -575,11 +637,7 @@ async function completeGitHubOAuthFromUrl() {
             body: JSON.stringify({ access_token: tokenData.access_token }),
         });
         
-        if (!userRes.ok) {
-            throw new Error(`Failed to get user info: ${userRes.status}`);
-        }
-        
-        const userData = await userRes.json();
+        const userData = await readJsonFetchResponse(userRes, 'GitHub user fetch');
         
         // Save auth state
         authState = { 
@@ -658,13 +716,9 @@ async function completeGitLabOAuthFromUrl() {
             body: JSON.stringify({ code, state }),
         });
         
-        if (!tokenRes.ok) {
-            throw new Error(`Token exchange failed: ${tokenRes.status}`);
-        }
-        
-        const tokenData = await tokenRes.json();
+        const tokenData = await readJsonFetchResponse(tokenRes, 'GitLab token exchange');
         if (tokenData.error) {
-            throw new Error(tokenData.error_description || tokenData.error);
+            throw new Error(getOAuthResponseError(tokenData, 'GitLab token exchange', tokenRes.status));
         }
         
         if (!tokenData.access_token) {
@@ -680,11 +734,7 @@ async function completeGitLabOAuthFromUrl() {
             body: JSON.stringify({ access_token: tokenData.access_token }),
         });
         
-        if (!userRes.ok) {
-            throw new Error(`Failed to get user info: ${userRes.status}`);
-        }
-        
-        const userData = await userRes.json();
+        const userData = await readJsonFetchResponse(userRes, 'GitLab user fetch');
         
         // Save auth state
         authState = { 
@@ -1386,6 +1436,8 @@ function init() {
     gridHelper.position.y = groundLevel;
     scene.add(gridHelper);
 
+    create3DCodeBoard();
+
     const starGeo = new THREE.BufferGeometry();
     const starVerts = [];
     for (let i = 0; i < 3000; i++) {
@@ -1625,12 +1677,15 @@ function expandFunctions(nodeId) {
 
     expandedNodes.add(nodeId);
     const fnMeshes = [];
-    const count = node.definitions.length;
+    
+    // Sort definitions by line number for stack layout
+    const sortedDefs = [...node.definitions].sort((a, b) => (a.line || 0) - (b.line || 0));
+    const count = sortedDefs.length;
     const orbitRadius = mesh.userData.baseSize + 3 + count * 0.15;
     const SPACING = 2.2;
 
     for (let i = 0; i < count; i++) {
-        const def = node.definitions[i];
+        const def = sortedDefs[i];
         const angle = (i / count) * Math.PI * 2;
 
         const kindColor = def.kind === 'class' ? 0x00ccff : def.kind === 'variable' ? 0xcc66ff : 0xff8800;
@@ -1671,8 +1726,11 @@ function expandFunctions(nodeId) {
             fileLayoutCount: count,
         };
 
-        // Function label
-        const label = createTextSprite(def.name, kindColor, 28);
+        // Function label with line range
+        const labelText = fileLayoutMode 
+            ? `${def.name} (ln ${def.line})` 
+            : def.name;
+        const label = createTextSprite(labelText, kindColor, 28);
         label.position.set(0, 1.2, 0);
         label.scale.set(3, 1.5, 1);
         fnMesh.add(label);
@@ -1860,9 +1918,114 @@ function getPrimaryDefinitionLabel(node) {
     return `${fn.name}()`;
 }
 
+function getGraphSymbolEdges() {
+    if (!graphData || !Array.isArray(graphData.symbolEdges)) return [];
+    if (graphData.symbolEdges.length === 0) return [];
+    return graphData.symbolEdges;
+}
+
+function getSymbolEdgeKey(edge) {
+    if (!edge) return '';
+    return `${edge.fromFile}|${edge.fromSymbol}|${edge.toFile}|${edge.toSymbol}|${edge.callLine}`;
+}
+
+function highlightExecutionSymbolLane(symbolEdge) {
+    if (!symbolEdge) return;
+    resetCallChainHighlight();
+    const nodeIds = new Set([symbolEdge.fromFile]);
+    if (symbolEdge.toFile && symbolEdge.toFile !== symbolEdge.fromFile) {
+        nodeIds.add(symbolEdge.toFile);
+    }
+    for (const nodeId of nodeIds) {
+        const mesh = nodeMeshes.get(nodeId);
+        if (!mesh) continue;
+        mesh.material.emissiveIntensity = 0.55;
+        mesh.scale.setScalar(1.15);
+        activeCallChain.nodeIds.add(nodeId);
+    }
+    const edgeIndex = edgesByPair[`${symbolEdge.fromFile}->${symbolEdge.toFile}`];
+    if (edgeIndex === undefined || !edgeLines[edgeIndex]) return;
+    edgeLines[edgeIndex].material.opacity = 0.9;
+    edgeLines[edgeIndex].material.color.setHex(0x00ff88);
+    activeCallChain.outboundEdgeIndices.add(edgeIndex);
+}
+
+function selectExecutionSymbolPath(symbolEdge, focusNodeId, panelNodeId = null) {
+    if (!symbolEdge) return;
+    selectedPathEdgeKey = getSymbolEdgeKey(symbolEdge);
+    selectedNodeId = panelNodeId || symbolEdge.fromFile;
+    highlightExecutionSymbolLane(symbolEdge);
+    updateExecutionPathPanel(selectedNodeId);
+    const destination = focusNodeId || symbolEdge.toFile;
+    if (destination && nodeMeshes.has(destination)) {
+        flyToNode(destination);
+    }
+}
+
+function renderExecutionPathGroup(results, title) {
+    const div = document.createElement('div');
+    div.className = 'ep-row';
+    div.innerHTML = `<span class="ep-kind">${title}</span><div class="ep-path"></div>`;
+    results.appendChild(div);
+}
+
+function renderSymbolExecutionRow(results, edge, direction, panelNodeId) {
+    const targetId = direction === 'out' ? edge.toFile : edge.fromFile;
+    const target = getNodeById(targetId);
+    if (!target) return;
+    const div = document.createElement('div');
+    const edgeKey = getSymbolEdgeKey(edge);
+    const kind = direction === 'out' ? 'CALLS' : 'CALLED BY';
+    const activeStyle = edgeKey === selectedPathEdgeKey ? ' style="border-color:#6ef5a0;"' : '';
+    const label = `${edge.fromSymbol}:${edge.callLine} → ${edge.toSymbol}:${edge.toLine}`;
+    const location = `${edge.fromFile}:${edge.callLine} → ${edge.toFile}:${edge.toLine}`;
+    div.className = 'ep-row';
+    div.innerHTML = `<span class="ep-kind">${kind}</span><span${activeStyle}>${escapeHtml(label)}</span><div class="ep-path">${escapeHtml(location)}</div>`;
+    div.onclick = () => selectExecutionSymbolPath(edge, targetId, panelNodeId);
+    results.appendChild(div);
+}
+
+function updateExecutionPathPanelFallback(nodeId, node, summary, results) {
+    const outbound = (adjacencyOutList[nodeId] || []).slice(0, 12);
+    const inbound = (adjacencyInList[nodeId] || []).slice(0, 12);
+    summary.textContent = `${node.fullPath} · ${inbound.length} callers/dependents · ${outbound.length} calls/dependencies`;
+
+    const renderRow = (kind, targetId) => {
+        const target = getNodeById(targetId);
+        if (!target) return;
+        const div = document.createElement('div');
+        div.className = 'ep-row';
+        div.innerHTML = `<span class="ep-kind">${kind}</span>${escapeHtml(getPrimaryDefinitionLabel(target))}<div class="ep-path">${escapeHtml(target.fullPath)}</div>`;
+        div.onclick = () => selectExecutionPathNode(targetId, true);
+        results.appendChild(div);
+    };
+
+    inbound.forEach((id) => renderRow('IN', id));
+    outbound.forEach((id) => renderRow('OUT', id));
+}
+
+function updateExecutionPathPanelWithSymbols(nodeId, node, summary, results, symbolEdges) {
+    const outbound = symbolEdges.filter((edge) => edge.fromFile === nodeId).slice(0, 16);
+    const inbound = symbolEdges.filter((edge) => edge.toFile === nodeId).slice(0, 16);
+    summary.textContent = `${node.fullPath} · ${inbound.length} called by · ${outbound.length} calls`;
+
+    if (inbound.length > 0) {
+        renderExecutionPathGroup(results, 'CALLED BY');
+        inbound.forEach((edge) => renderSymbolExecutionRow(results, edge, 'in', nodeId));
+    }
+    if (outbound.length > 0) {
+        renderExecutionPathGroup(results, 'CALLS');
+        outbound.forEach((edge) => renderSymbolExecutionRow(results, edge, 'out', nodeId));
+    }
+    if (inbound.length === 0 && outbound.length === 0) {
+        renderExecutionPathGroup(results, 'NO SYMBOL PATHS');
+    }
+}
+
 function selectExecutionPathNode(nodeId, shouldFly = true) {
     if (!nodeId || !nodeMeshes.has(nodeId)) return;
     selectedNodeId = nodeId;
+    selectedPathEdgeKey = null;
     resetCallChainHighlight();
     applyCallChainHighlight(nodeId);
     updateExecutionPathPanel(nodeId);
@@ -1878,35 +2041,41 @@ function updateExecutionPathPanel(nodeId) {
     const node = getNodeById(nodeId);
     if (!panel || !summary || !results || !node) return;
 
-    const outbound = (adjacencyOutList[nodeId] || []).slice(0, 12);
-    const inbound = (adjacencyInList[nodeId] || []).slice(0, 12);
-    summary.textContent = `${node.fullPath} · ${inbound.length} callers/dependents · ${outbound.length} calls/dependencies`;
     results.innerHTML = '';
-
-    const renderRow = (kind, targetId) => {
-        const target = getNodeById(targetId);
-        if (!target) return;
-        const div = document.createElement('div');
-        div.className = 'ep-row';
-        div.innerHTML = `<span class="ep-kind">${kind}</span>${escapeHtml(getPrimaryDefinitionLabel(target))}<div class="ep-path">${escapeHtml(target.fullPath)}</div>`;
-        div.onclick = () => selectExecutionPathNode(targetId, true);
-        results.appendChild(div);
-    };
-
     const current = document.createElement('div');
     current.className = 'ep-row';
     current.innerHTML = `<span class="ep-kind">SELECTED</span>${escapeHtml(getPrimaryDefinitionLabel(node))}<div class="ep-path">${escapeHtml(node.fullPath)}</div>`;
     current.onclick = () => flyToNode(nodeId);
     results.appendChild(current);
 
-    inbound.forEach((id) => renderRow('IN', id));
-    outbound.forEach((id) => renderRow('OUT', id));
+    const symbolEdges = getGraphSymbolEdges();
+    if (symbolEdges.length > 0) {
+        updateExecutionPathPanelWithSymbols(nodeId, node, summary, results, symbolEdges);
+    } else {
+        updateExecutionPathPanelFallback(nodeId, node, summary, results);
+    }
 
     panel.style.display = 'block';
 }
 
 function buildPathSearchIndex() {
     pathSearchIndex = [];
+    const symbolEdges = getGraphSymbolEdges();
+    if (symbolEdges.length > 0) {
+        for (const edge of symbolEdges) {
+            pathSearchIndex.push({
+                type: 'path',
+                name: `${edge.fromSymbol} → ${edge.toSymbol}`,
+                path: `${edge.fromFile}:${edge.callLine} → ${edge.toFile}:${edge.toLine}`,
+                fromId: edge.fromFile,
+                toId: edge.toFile,
+                nodeId: edge.fromFile,
+                symbolEdge: edge,
+            });
+        }
+        return;
+    }
+
     for (const edge of graphData.edges) {
         const from = getNodeById(edge.from);
         const to = getNodeById(edge.to);
@@ -2138,6 +2307,32 @@ function connectMultiplayer() {
             updateOnlineCount();
         }
 
+        if (msg.type === 'welcome') {
+            myPlayerId = msg.playerId;
+            document.getElementById('onlineCount').textContent = String(msg.players.length + 1);
+
+            // Create existing players
+            for (const player of msg.players) {
+                if (player.id !== myPlayerId) {
+                    createRemotePlayer({
+                        id: player.id,
+                        nickname: player.nickname,
+                        color: player.color,
+                        position: player.position,
+                    });
+                }
+            }
+
+            // Create existing agents
+            if (msg.agents) {
+                for (const agent of msg.agents) {
+                    if (!agents.has(agent.id)) {
+                        createAgentMesh(agent);
+                    }
+                }
+            }
+        }
+
         if (msg.type === 'chat') {
             addChatMessage(`${msg.nickname}: ${msg.text}`, '#8ff');
         }
@@ -2145,6 +2340,20 @@ function connectMultiplayer() {
         if (msg.type === 'leave') {
             removeRemotePlayer(msg.id);
             updateOnlineCount();
+        }
+
+        if (msg.type === 'agent_joined') {
+            createAgentMesh(msg.agent);
+            addChatMessage(`Agent ${msg.agent.name} joined`, '#b0f');
+        }
+
+        if (msg.type === 'agent_left') {
+            removeAgentMesh(msg.agentId);
+            addChatMessage(`Agent left`, '#b0f');
+        }
+
+        if (msg.type === 'agent_update') {
+            updateAgentPosition(msg.agentId, msg.position);
         }
     };
 
@@ -2224,6 +2433,76 @@ function createRemotePlayer(data) {
         color: data.color,
         label: label,
     });
+}
+
+function createAgentMesh(agentData) {
+    const group = new THREE.Group();
+    const agentColor = { h: 280, s: 100, l: 60 };
+
+    // Body - different shape to distinguish from players
+    const bodyGeo = new THREE.OctahedronGeometry(0.5, 0);
+    const bodyMat = new THREE.MeshPhongMaterial({
+        color: hslToHex(agentColor),
+        emissive: hslToHex(agentColor),
+        emissiveIntensity: 0.4,
+        shininess: 50,
+    });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    group.add(body);
+
+    // Inner core
+    const coreGeo = new THREE.IcosahedronGeometry(0.25, 0);
+    const coreMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9,
+    });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    group.add(core);
+
+    // Orbiting ring
+    const ringGeo = new THREE.TorusGeometry(0.8, 0.05, 8, 32);
+    const ringMat = new THREE.MeshBasicMaterial({
+        color: hslToHex(agentColor),
+        transparent: true,
+        opacity: 0.5,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+
+    // Name label
+    const label = createTextSprite(agentData.name, hslToHex(agentColor), 20);
+    label.position.set(0, 1.8, 0);
+    label.scale.set(3.5, 1.8, 1);
+    group.add(label);
+
+    if (agentData.position) {
+        group.position.set(agentData.position.x, agentData.position.y, agentData.position.z);
+    }
+
+    scene.add(group);
+    agentMeshes.set(agentData.id, {
+        group: group,
+        data: agentData,
+        ring: ring,
+        core: core,
+    });
+    agents.set(agentData.id, agentData);
+}
+
+function updateAgentPosition(agentId, position) {
+    const agentMesh = agentMeshes.get(agentId);
+    if (!agentMesh) return;
+    agentMesh.group.position.set(position.x, position.y, position.z);
+}
+
+function removeAgentMesh(agentId) {
+    const agentMesh = agentMeshes.get(agentId);
+    if (!agentMesh) return;
+    scene.remove(agentMesh.group);
+    agentMeshes.delete(agentId);
+    agents.delete(agentId);
 }
 
 function updateRemotePlayer(playerId, position, rotation, nickname) {
@@ -2311,6 +2590,451 @@ function sendChat(text) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'chat', text, nickname: myNickname, color: myColor }));
     addChatMessage(`${myNickname}: ${text}`, '#0f8');
+}
+
+// ============================================================
+// CODE BOARD
+// ============================================================
+function create3DCodeBoard() {
+    const boardWidth = 40;
+    const boardHeight = 25;
+    
+    // Front canvas (code)
+    codeBoardCanvas = document.createElement('canvas');
+    codeBoardCanvas.width = 2048;
+    codeBoardCanvas.height = 1280;
+    codeBoardCtx = codeBoardCanvas.getContext('2d');
+    
+    codeBoardTexture = new THREE.CanvasTexture(codeBoardCanvas);
+    codeBoardTexture.minFilter = THREE.LinearFilter;
+    codeBoardTexture.magFilter = THREE.LinearFilter;
+    
+    // Back canvas (details)
+    codeBoardBackCanvas = document.createElement('canvas');
+    codeBoardBackCanvas.width = 2048;
+    codeBoardBackCanvas.height = 1280;
+    codeBoardBackCtx = codeBoardBackCanvas.getContext('2d');
+    
+    codeBoardBackTexture = new THREE.CanvasTexture(codeBoardBackCanvas);
+    codeBoardBackTexture.minFilter = THREE.LinearFilter;
+    codeBoardBackTexture.magFilter = THREE.LinearFilter;
+    
+    const boardGeo = new THREE.PlaneGeometry(boardWidth, boardHeight);
+    
+    // Create materials array for front and back
+    const frontMat = new THREE.MeshBasicMaterial({
+        map: codeBoardTexture,
+        side: THREE.FrontSide,
+        transparent: true,
+        opacity: 0.95
+    });
+    
+    const backMat = new THREE.MeshBasicMaterial({
+        map: codeBoardBackTexture,
+        side: THREE.BackSide,
+        transparent: true,
+        opacity: 0.95
+    });
+    
+    codeBoardMesh = new THREE.Mesh(boardGeo, [frontMat, backMat]);
+    codeBoardMesh.position.set(0, 40, 60);
+    codeBoardMesh.rotation.y = Math.PI;
+    scene.add(codeBoardMesh);
+    
+    // Add frame
+    const frameGeo = new THREE.BoxGeometry(boardWidth + 0.5, boardHeight + 0.5, 0.2);
+    const frameMat = new THREE.MeshBasicMaterial({ color: 0x8a2be2 });
+    const frame = new THREE.Mesh(frameGeo, frameMat);
+    frame.position.z = -0.15;
+    codeBoardMesh.add(frame);
+    
+    // Initial render
+    renderCodeBoardEmpty();
+    renderCodeBoardBackEmpty();
+}
+
+function renderCodeBoardEmpty() {
+    if (!codeBoardCtx) return;
+    
+    codeBoardCtx.fillStyle = '#0a0a15';
+    codeBoardCtx.fillRect(0, 0, codeBoardCanvas.width, codeBoardCanvas.height);
+    
+    codeBoardCtx.fillStyle = '#8a2be2';
+    codeBoardCtx.font = 'bold 48px Courier New';
+    codeBoardCtx.textAlign = 'center';
+    codeBoardCtx.fillText('CODE BOARD', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2);
+    
+    codeBoardCtx.fillStyle = '#666';
+    codeBoardCtx.font = '24px Courier New';
+    codeBoardCtx.fillText('Click a function to view code', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2 + 40);
+    
+    if (codeBoardTexture) {
+        codeBoardTexture.needsUpdate = true;
+    }
+}
+
+function renderCodeBoardBackEmpty() {
+    if (!codeBoardBackCtx) return;
+    
+    codeBoardBackCtx.fillStyle = '#0a0a15';
+    codeBoardBackCtx.fillRect(0, 0, codeBoardBackCanvas.width, codeBoardBackCanvas.height);
+    
+    codeBoardBackCtx.fillStyle = '#8a2be2';
+    codeBoardBackCtx.font = 'bold 48px Courier New';
+    codeBoardBackCtx.textAlign = 'center';
+    codeBoardBackCtx.fillText('DETAILS', codeBoardBackCanvas.width / 2, codeBoardBackCanvas.height / 2);
+    
+    codeBoardBackCtx.fillStyle = '#666';
+    codeBoardBackCtx.font = '24px Courier New';
+    codeBoardBackCtx.fillText('Walk around to see execution paths', codeBoardBackCanvas.width / 2, codeBoardBackCanvas.height / 2 + 40);
+    
+    if (codeBoardBackTexture) {
+        codeBoardBackTexture.needsUpdate = true;
+    }
+}
+
+function renderCodeToBoard(nodeData, functionData) {
+    if (!codeBoardCtx || !nodeData) return;
+    
+    console.log('Rendering code board for:', nodeData.label, 'has content:', !!nodeData.content, 'content length:', nodeData.content?.length || 0);
+    
+    codeBoardCtx.fillStyle = '#0a0a15';
+    codeBoardCtx.fillRect(0, 0, codeBoardCanvas.width, codeBoardCanvas.height);
+    
+    // Title
+    codeBoardCtx.fillStyle = '#8f8';
+    codeBoardCtx.font = 'bold 32px Courier New';
+    codeBoardCtx.textAlign = 'left';
+    codeBoardCtx.fillText(nodeData.label, 20, 40);
+    
+    if (functionData) {
+        codeBoardCtx.fillStyle = '#b0f';
+        codeBoardCtx.fillText(`- ${functionData.functionName} (${functionData.functionKind})`, 20, 80);
+    }
+    
+    // Code content
+    if (nodeData.content && nodeData.content.length > 0) {
+        const lines = nodeData.content.split('\n');
+        const lineHeight = 28;
+        const startY = 120;
+        const maxLines = Math.floor((codeBoardCanvas.height - startY) / lineHeight);
+        
+        let startLine = 0;
+        if (functionData && functionData.functionLine) {
+            startLine = Math.max(0, functionData.functionLine - Math.floor(maxLines / 2));
+        }
+        
+        const endLine = Math.min(lines.length, startLine + maxLines);
+        const codeLines = lines.slice(startLine, endLine);
+        
+        codeBoardCtx.font = '22px Courier New';
+        
+        for (let i = 0; i < codeLines.length; i++) {
+            const lineNum = startLine + i + 1;
+            const y = startY + i * lineHeight;
+            
+            // Line number
+            codeBoardCtx.fillStyle = '#666';
+            codeBoardCtx.textAlign = 'right';
+            codeBoardCtx.fillText(String(lineNum), 80, y);
+            
+            // Code
+            const isTargetLine = functionData && lineNum === functionData.functionLine;
+            if (isTargetLine) {
+                codeBoardCtx.fillStyle = 'rgba(138, 43, 226, 0.3)';
+                codeBoardCtx.fillRect(90, y - 20, codeBoardCanvas.width - 110, lineHeight);
+            }
+            
+            codeBoardCtx.fillStyle = isTargetLine ? '#fff' : '#e0e0e0';
+            codeBoardCtx.textAlign = 'left';
+            codeBoardCtx.fillText(escapeHtml(codeLines[i]) || ' ', 100, y);
+        }
+    } else {
+        codeBoardCtx.fillStyle = '#f66';
+        codeBoardCtx.font = '24px Courier New';
+        codeBoardCtx.textAlign = 'center';
+        codeBoardCtx.fillText('File content not available', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2);
+        codeBoardCtx.fillStyle = '#666';
+        codeBoardCtx.font = '18px Courier New';
+        codeBoardCtx.fillText('Reload the repo - content was missing in this graph', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2 + 30);
+    }
+    
+    if (codeBoardTexture) {
+        codeBoardTexture.needsUpdate = true;
+    }
+}
+
+function showCodeBoard(nodeData, functionData) {
+    if (!nodeData) return;
+    
+    renderCodeToBoard(nodeData, functionData);
+    renderCodeBoardBack(nodeData, functionData);
+    
+    // Position board in front of player
+    if (codeBoardMesh && playerGroup) {
+        const playerPos = playerGroup.position.clone();
+        const playerDir = new THREE.Vector3(0, 0, -1);
+        playerDir.applyQuaternion(playerGroup.quaternion);
+        
+        codeBoardMesh.position.copy(playerPos).add(playerDir.multiplyScalar(30));
+        codeBoardMesh.position.y = playerPos.y + 5;
+        codeBoardMesh.lookAt(playerPos);
+    }
+}
+
+function closeCodeBoard() {
+    document.getElementById('codeBoard').style.display = 'none';
+    renderCodeBoardEmpty();
+    renderCodeBoardBackEmpty();
+}
+
+function renderCodeBoardBack(nodeData, functionData) {
+    if (!codeBoardBackCtx || !nodeData) return;
+    
+    codeBoardBackCtx.fillStyle = '#0a0a15';
+    codeBoardBackCtx.fillRect(0, 0, codeBoardBackCanvas.width, codeBoardBackCanvas.height);
+    
+    let y = 60;
+    const lineHeight = 35;
+    
+    // Title
+    codeBoardBackCtx.fillStyle = '#8f8';
+    codeBoardBackCtx.font = 'bold 36px Courier New';
+    codeBoardBackCtx.textAlign = 'left';
+    codeBoardBackCtx.fillText('FILE DETAILS', 40, y);
+    y += lineHeight * 1.5;
+    
+    // File metadata
+    codeBoardBackCtx.fillStyle = '#e0e0e0';
+    codeBoardBackCtx.font = '24px Courier New';
+    codeBoardBackCtx.fillText(`Path: ${nodeData.fullPath}`, 40, y);
+    y += lineHeight;
+    codeBoardBackCtx.fillText(`Language: ${nodeData.lang || 'unknown'}`, 40, y);
+    y += lineHeight;
+    codeBoardBackCtx.fillText(`Lines: ${nodeData.lines}`, 40, y);
+    y += lineHeight;
+    codeBoardBackCtx.fillText(`Size: ${formatBytes(nodeData.size || 0)}`, 40, y);
+    y += lineHeight * 1.5;
+    
+    // Dependencies
+    const deps = nodeData.dependencies || [];
+    if (deps.length > 0) {
+        codeBoardBackCtx.fillStyle = '#b0f';
+        codeBoardBackCtx.font = 'bold 28px Courier New';
+        codeBoardBackCtx.fillText(`DEPENDENCIES (${deps.length})`, 40, y);
+        y += lineHeight;
+        
+        codeBoardBackCtx.fillStyle = '#e0e0e0';
+        codeBoardBackCtx.font = '20px Courier New';
+        const maxDeps = 15;
+        for (let i = 0; i < Math.min(deps.length, maxDeps); i++) {
+            codeBoardBackCtx.fillText(`  → ${deps[i]}`, 40, y);
+            y += lineHeight * 0.8;
+        }
+        if (deps.length > maxDeps) {
+            codeBoardBackCtx.fillStyle = '#666';
+            codeBoardBackCtx.fillText(`  ... and ${deps.length - maxDeps} more`, 40, y);
+            y += lineHeight * 0.8;
+        }
+        y += lineHeight;
+    }
+    
+    // Function details
+    if (functionData) {
+        y += lineHeight * 0.5;
+        codeBoardBackCtx.fillStyle = '#ff8800';
+        codeBoardBackCtx.font = 'bold 28px Courier New';
+        codeBoardBackCtx.fillText('FUNCTION', 40, y);
+        y += lineHeight;
+        
+        codeBoardBackCtx.fillStyle = '#e0e0e0';
+        codeBoardBackCtx.font = '24px Courier New';
+        codeBoardBackCtx.fillText(`Name: ${functionData.functionName}`, 40, y);
+        y += lineHeight;
+        codeBoardBackCtx.fillText(`Kind: ${functionData.functionKind}`, 40, y);
+        y += lineHeight;
+        codeBoardBackCtx.fillText(`Line: ${functionData.functionLine}`, 40, y);
+        y += lineHeight * 1.5;
+        
+        // Execution paths
+        const symbolEdges = graphData.symbolEdges || [];
+        const calls = symbolEdges.filter(e => 
+            e.fromFile === nodeData.fullPath && 
+            e.fromSymbol === functionData.functionName
+        );
+        const calledBy = symbolEdges.filter(e => 
+            e.toFile === nodeData.fullPath && 
+            e.toSymbol === functionData.functionName
+        );
+        
+        if (calls.length > 0) {
+            codeBoardBackCtx.fillStyle = '#0f8';
+            codeBoardBackCtx.font = 'bold 26px Courier New';
+            codeBoardBackCtx.fillText(`CALLS (${calls.length})`, 40, y);
+            y += lineHeight;
+            
+            codeBoardBackCtx.fillStyle = '#e0e0e0';
+            codeBoardBackCtx.font = '20px Courier New';
+            const maxCalls = 10;
+            for (let i = 0; i < Math.min(calls.length, maxCalls); i++) {
+                const call = calls[i];
+                codeBoardBackCtx.fillText(`  → ${call.toSymbol} (${call.toFile.split('/').pop()})`, 40, y);
+                y += lineHeight * 0.8;
+            }
+            if (calls.length > maxCalls) {
+                codeBoardBackCtx.fillStyle = '#666';
+                codeBoardBackCtx.fillText(`  ... and ${calls.length - maxCalls} more`, 40, y);
+                y += lineHeight * 0.8;
+            }
+            y += lineHeight;
+        }
+        
+        if (calledBy.length > 0) {
+            codeBoardBackCtx.fillStyle = '#f8f';
+            codeBoardBackCtx.font = 'bold 26px Courier New';
+            codeBoardBackCtx.fillText(`CALLED BY (${calledBy.length})`, 40, y);
+            y += lineHeight;
+            
+            codeBoardBackCtx.fillStyle = '#e0e0e0';
+            codeBoardBackCtx.font = '20px Courier New';
+            const maxCalled = 10;
+            for (let i = 0; i < Math.min(calledBy.length, maxCalled); i++) {
+                const call = calledBy[i];
+                codeBoardBackCtx.fillText(`  ← ${call.fromSymbol} (${call.fromFile.split('/').pop()})`, 40, y);
+                y += lineHeight * 0.8;
+            }
+            if (calledBy.length > maxCalled) {
+                codeBoardBackCtx.fillStyle = '#666';
+                codeBoardBackCtx.fillText(`  ... and ${calledBy.length - maxCalled} more`, 40, y);
+                y += lineHeight * 0.8;
+            }
+        }
+    } else {
+        // Show all definitions if no specific function selected
+        const defs = nodeData.definitions || [];
+        if (defs.length > 0) {
+            y += lineHeight * 0.5;
+            codeBoardBackCtx.fillStyle = '#ff8800';
+            codeBoardBackCtx.font = 'bold 28px Courier New';
+            codeBoardBackCtx.fillText(`DEFINITIONS (${defs.length})`, 40, y);
+            y += lineHeight;
+            
+            codeBoardBackCtx.fillStyle = '#e0e0e0';
+            codeBoardBackCtx.font = '20px Courier New';
+            const maxDefs = 20;
+            for (let i = 0; i < Math.min(defs.length, maxDefs); i++) {
+                const def = defs[i];
+                codeBoardBackCtx.fillText(`  ${def.kind}: ${def.name} (ln ${def.line})`, 40, y);
+                y += lineHeight * 0.8;
+            }
+            if (defs.length > maxDefs) {
+                codeBoardBackCtx.fillStyle = '#666';
+                codeBoardBackCtx.fillText(`  ... and ${defs.length - maxDefs} more`, 40, y);
+            }
+        }
+    }
+    
+    if (codeBoardBackTexture) {
+        codeBoardBackTexture.needsUpdate = true;
+    }
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// ============================================================
+// AGENT PANEL
+// ============================================================
+function openAgentPanel() {
+    const panel = document.getElementById('agentPanel');
+    const agentList = document.getElementById('agentList');
+    const agentSelect = document.getElementById('agentSelect');
+    
+    panel.style.display = 'block';
+    
+    // Populate agent list
+    agentList.innerHTML = '';
+    agentSelect.innerHTML = '<option value="">Select agent...</option>';
+    
+    for (const [id, agent] of agents) {
+        const div = document.createElement('div');
+        div.style.padding = '8px';
+        div.style.marginBottom = '6px';
+        div.style.background = 'rgba(138,43,226,0.1)';
+        div.style.borderRadius = '6px';
+        div.style.fontSize = '12px';
+        div.innerHTML = `<span style="color:#b0f; font-weight:bold;">${agent.name}</span><br><span style="color:#666;">${agent.role}</span>`;
+        agentList.appendChild(div);
+        
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = agent.name;
+        agentSelect.appendChild(option);
+    }
+    
+    if (agents.size === 0) {
+        agentList.innerHTML = '<div style="color:#666; font-size:12px; padding:8px;">No agents active. Create one via the API.</div>';
+    }
+}
+
+function closeAgentPanel() {
+    document.getElementById('agentPanel').style.display = 'none';
+}
+
+async function sendAgentMessage() {
+    const agentId = document.getElementById('agentSelect').value;
+    const message = document.getElementById('agentMessageInput').value.trim();
+    const responseDiv = document.getElementById('agentResponse');
+    
+    if (!agentId) {
+        alert('Please select an agent');
+        return;
+    }
+    
+    if (!message) {
+        alert('Please enter a message');
+        return;
+    }
+    
+    responseDiv.style.display = 'block';
+    responseDiv.innerHTML = '<span style="color:#8f8;">Thinking...</span>';
+    
+    try {
+        const codeContext = buildCodeContext();
+        const response = await fetch(`/api/agents/${agentId}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, codeContext })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            responseDiv.innerHTML = `<span style="color:#f66;">Error: ${data.error}</span>`;
+        } else {
+            responseDiv.innerHTML = `<span style="color:#b0f;">${escapeHtml(data.response)}</span>`;
+        }
+    } catch (error) {
+        responseDiv.innerHTML = `<span style="color:#f66;">Error: ${error.message}</span>`;
+    }
+    
+    document.getElementById('agentMessageInput').value = '';
+}
+
+function buildCodeContext() {
+    if (!hoveredNode) return null;
+    
+    return {
+        filePath: hoveredNode.fullPath,
+        functionName: hoveredFunctionMesh ? hoveredFunctionMesh.userData.functionName : null,
+        code: hoveredNode.content || null,
+        dependencies: hoveredNode.dependencies || []
+    };
 }
 
 // ============================================================
@@ -2415,6 +3139,15 @@ function setupControls() {
                 buildAnalyticsFilters();
             }
         }
+        if (key === 'a' && gameStarted) {
+            const ap = document.getElementById('agentPanel');
+            if (ap.style.display === 'block') {
+                ap.style.display = 'none';
+            } else {
+                openAgentPanel();
+                document.exitPointerLock();
+            }
+        }
         if (key === 'k' && (e.ctrlKey || e.metaKey) && gameStarted) {
             e.preventDefault();
             const overlay = document.getElementById('searchOverlay');
@@ -2484,7 +3217,11 @@ function setupControls() {
 
     renderer.domElement.addEventListener('click', (e) => {
         if (gameStarted && !isPointerLocked) {
-            renderer.domElement.requestPointerLock();
+            try {
+                renderer.domElement.requestPointerLock();
+            } catch (err) {
+                console.error('Pointer lock failed:', err);
+            }
             return;
         }
 
@@ -2498,7 +3235,7 @@ function setupControls() {
             if (!parentMesh || !parentMesh.userData.nodeData) {
                 throw new Error('Function node has no valid parent node data');
             }
-            openIdePicker(parentMesh.userData.nodeData, ud.functionLine);
+            showCodeBoard(parentMesh.userData.nodeData, ud);
         } else if (hoveredNode) {
             selectExecutionPathNode(hoveredNode.id, false);
             if (hoveredNode.definitions && hoveredNode.definitions.length > 0) {
@@ -2801,14 +3538,18 @@ function showResults(ids, label) {
 
 function flyToNode(nodeId) {
     const mesh = nodeMeshes.get(nodeId);
-    if (!mesh) return;
+    if (!mesh) {
+        console.error('flyToNode: mesh not found for nodeId', nodeId);
+        return;
+    }
     const target = mesh.position.clone();
-    target.z += 20;
-    target.y += 5;
+    target.z += 25;
+    target.y += 8;
     flyTarget.active = true;
     flyTarget.from = playerGroup.position.clone();
     flyTarget.to = target;
     flyTarget.progress = 0;
+    console.log('Flying to node', nodeId, 'at position', target);
 }
 
 window.clearFilters = function() {
@@ -2896,6 +3637,52 @@ window.filterNoDefinitions = function() {
         .filter(n => !n.definitions || n.definitions.length === 0)
         .map(n => n.id);
     highlightNodes(ids, 'Files with no definitions');
+};
+
+window.runDeadCodeDetection = async function() {
+    if (!currentRepoUrl) {
+        alert('No repo loaded. Dead code detection requires a loaded repository.');
+        return;
+    }
+
+    const resultsDiv = document.getElementById('analyticsResults');
+    resultsDiv.innerHTML = '<div style="color:#ff0; font-size:11px;">Running dead code detection (knip + depcheck)... this may take up to 2 minutes.</div>';
+
+    try {
+        const response = await fetch('/api/deadcode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: currentRepoUrl }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Dead code detection failed');
+        }
+
+        const results = await response.json();
+
+        let html = '<div style="color:#0f8; font-size:11px; margin-bottom:8px;">Dead code detection complete</div>';
+
+        if (results.knip) {
+            html += '<div style="color:#8f8; font-size:10px; margin-bottom:6px;"><strong>knip:</strong></div>';
+            html += `<pre style="color:#aaa; font-size:9px; white-space:pre-wrap; margin-bottom:8px;">${escapeHtml(results.knip)}</pre>`;
+        }
+
+        if (results.depcheck) {
+            html += '<div style="color:#8f8; font-size:10px; margin-bottom:6px;"><strong>depcheck:</strong></div>';
+            html += `<pre style="color:#aaa; font-size:9px; white-space:pre-wrap; margin-bottom:8px;">${escapeHtml(results.depcheck)}</pre>`;
+        }
+
+        if (results.errors && results.errors.length > 0) {
+            html += '<div style="color:#f44; font-size:10px; margin-bottom:6px;"><strong>Errors:</strong></div>';
+            html += `<div style="color:#f88; font-size:9px;">${results.errors.map(e => escapeHtml(e)).join('<br>')}</div>`;
+        }
+
+        resultsDiv.innerHTML = html;
+    } catch (err) {
+        resultsDiv.innerHTML = `<div style="color:#f44; font-size:11px;">Error: ${escapeHtml(err.message)}</div>`;
+    }
 };
 
 window.filterByKind = function(kind) {
@@ -3318,6 +4105,14 @@ function animate() {
         if (frameCount % 3 === 0) {
             sendPositionUpdate();
         }
+
+        // Animate agents
+        const agentTime = Date.now() * 0.002;
+        for (const [id, agentMesh] of agentMeshes) {
+            agentMesh.ring.rotation.z = agentTime;
+            agentMesh.core.rotation.y = agentTime * 0.5;
+            agentMesh.core.rotation.x = agentTime * 0.3;
+        }
     }
 
     renderer.render(scene, camera);
@@ -3597,12 +4392,10 @@ window.loadLocalFolder = async function() {
         const data = await generateGraphFromLocalFolder(directoryHandle, (msg) => {
             statusEl.textContent = msg;
         });
-        if (!data || !data.nodes || !data.edges) {
-            throw new Error('Local folder graph generation returned no data');
-        }
+        assertGraphDataContract(data, 'Local folder load');
 
         graphData = data;
-        saveRecentRepo(`local:${directoryHandle.name}`);
+        currentRepoUrl = null;
         init();
 
         document.getElementById('startScreen').style.display = 'none';
@@ -3650,8 +4443,7 @@ function performSearch(query) {
     }
 
     const q = query.toLowerCase();
-    const includePaths = q.includes('path') || q.includes('call') || q.includes('execution') || q.includes('flow');
-    const source = includePaths ? searchIndex.concat(pathSearchIndex) : searchIndex;
+    const source = searchIndex.concat(pathSearchIndex);
     const matches = source
         .filter(item => item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q))
         .slice(0, 30);
@@ -3663,7 +4455,9 @@ function performSearch(query) {
         const lineInfo = match.line ? `:${match.line}` : '';
         div.innerHTML = `<span class="sr-kind">[${kindLabel}]</span> ${escapeHtml(match.name)} <span class="sr-file">${escapeHtml(match.path)}${lineInfo}</span>`;
         div.onclick = () => {
-            if (match.type === 'path') {
+            if (match.type === 'path' && match.symbolEdge) {
+                selectExecutionSymbolPath(match.symbolEdge, match.toId, match.fromId);
+            } else if (match.type === 'path') {
                 selectExecutionPathNode(match.fromId, true);
             } else {
                 flyToNode(match.nodeId);
@@ -3756,17 +4550,10 @@ window.loadAndStart = async function() {
             });
         }
 
-        if (!data) {
-            throw new Error('Graph generation returned no data');
-        }
-
-        if (!data.nodes || !data.edges) {
-            throw new Error('Invalid graph data returned');
-        }
+        assertGraphDataContract(data, 'Repository load');
 
         graphData = data;
-        saveRecentRepo(url);
-
+        currentRepoUrl = url;
         init();
 
         document.getElementById('startScreen').style.display = 'none';
@@ -3822,33 +4609,13 @@ function hideLoadError() {
     document.getElementById('loadError').style.display = 'none';
 }
 
-function saveRecentRepo(url) {
-    if (url.startsWith('local:')) {
-        return;
-    }
-    const recent = JSON.parse(localStorage.getItem('codechat_recent') || '[]');
-    const filtered = recent.filter(r => r !== url);
-    filtered.unshift(url);
-    localStorage.setItem('codechat_recent', JSON.stringify(filtered.slice(0, 5)));
-}
-
 function loadRecentRepos() {
-    const recent = JSON.parse(localStorage.getItem('codechat_recent') || '[]');
+    localStorage.removeItem(RECENT_REPOS_STORAGE_KEY);
     const container = document.getElementById('recentRepos');
-    container.innerHTML = '';
-    for (const url of recent) {
-        if (url.startsWith('local:')) {
-            continue;
-        }
-        const div = document.createElement('div');
-        div.className = 'recent-repo';
-        div.textContent = url;
-        div.onclick = () => {
-            document.getElementById('repoInput').value = url;
-            document.getElementById('startBtn').disabled = false;
-        };
-        container.appendChild(div);
+    if (!container) {
+        throw new Error('Recent repos container missing from DOM');
     }
+    container.innerHTML = '';
 }
 
 // ============================================================

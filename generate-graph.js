@@ -1,6 +1,9 @@
+// @ts-check
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+
+/** @typedef {import('./types/graph-contract').GraphData} GraphData */
 
 // ============================================================
 // EXCLUDED DIRECTORIES (exact segment match, not substring)
@@ -238,6 +241,7 @@ function extractDefinitionsFromContent(content, lang) {
     javascript: [
       // functions
       [/^\s*(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/gm, 'function'],
+      [/^\s*export\s+(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/gm, 'function'],
       [/^\s*(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/gm, 'function'],
       [/^\s*(?:async\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)\s*\{/gm, 'function'],
       [/(?:module\.)?exports\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=/gm, 'function'],
@@ -467,6 +471,146 @@ function extractDefinitionsFromContent(content, lang) {
   return defs;
 }
 
+function escapeRegexLiteral(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSymbolMatchers(names) {
+  return names.map((name) => {
+    const escaped = escapeRegexLiteral(name);
+    return {
+      name,
+      call: new RegExp(`(^|[^\\w$])(?:new\\s+)?${escaped}\\s*\\(`),
+      usage: new RegExp(`(^|[^\\w$])${escaped}([^\\w$]|$)`),
+      declaration: new RegExp(`\\b(function|class|const|let|var|type|interface|enum|def|fn|func)\\s+${escaped}\\b`),
+    };
+  });
+}
+
+function extractSymbolReferences(content, knownDefinitions) {
+  if (typeof content !== 'string' || content.length === 0 || !Array.isArray(knownDefinitions)) return [];
+  const names = [...new Set(knownDefinitions.map((def) => def.name).filter(Boolean))];
+  if (names.length === 0) return [];
+  const refs = [];
+  const seen = new Set();
+  const matchers = buildSymbolMatchers(names);
+  const lines = content.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const matcher of matchers) {
+      if (matcher.declaration.test(line)) continue;
+      if (!matcher.call.test(line) && !matcher.usage.test(line)) continue;
+      const key = `${matcher.name}@${i + 1}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refs.push({ name: matcher.name, line: i + 1 });
+    }
+  }
+  return refs;
+}
+
+function findContainingDefinition(definitions, line) {
+  if (!Array.isArray(definitions) || definitions.length === 0) return null;
+  const sorted = [...definitions].sort((a, b) => a.line - b.line);
+  let nearest = null;
+  let nearestFunction = null;
+
+  for (const def of sorted) {
+    if (def.line > line) break;
+    nearest = def;
+    if (def.kind === 'function') nearestFunction = def;
+  }
+  return nearestFunction || nearest;
+}
+
+function buildSymbolDefinitionIndex(nodes) {
+  const symbolIndex = new Map();
+  for (const node of nodes) {
+    for (const def of node.definitions || []) {
+      if (!symbolIndex.has(def.name)) symbolIndex.set(def.name, []);
+      symbolIndex.get(def.name).push({ file: node.id, def });
+    }
+  }
+  return symbolIndex;
+}
+
+function buildDefinitionsByFile(nodes) {
+  const definitionsByFile = new Map();
+  for (const node of nodes) {
+    definitionsByFile.set(node.id, node.definitions || []);
+  }
+  return definitionsByFile;
+}
+
+function buildReferenceCandidates(fileId, definitionsByFile, importsByFile) {
+  const byName = new Map();
+  const addDefs = (defs) => {
+    for (const def of defs || []) {
+      if (!def || !def.name || byName.has(def.name)) continue;
+      byName.set(def.name, def);
+    }
+  };
+
+  addDefs(definitionsByFile.get(fileId));
+  for (const importedFile of importsByFile.get(fileId) || []) {
+    addDefs(definitionsByFile.get(importedFile));
+  }
+  return Array.from(byName.values());
+}
+
+function resolveSymbolTargets(fromFile, refName, symbolIndex, importsByFile) {
+  const candidates = symbolIndex.get(refName) || [];
+  if (candidates.length === 0) return [];
+  const sameFile = candidates.filter((candidate) => candidate.file === fromFile);
+  if (sameFile.length > 0) return sameFile;
+  const importedFiles = importsByFile.get(fromFile) || new Set();
+  return candidates.filter((candidate) => importedFiles.has(candidate.file));
+}
+
+function addSymbolEdge(symbolEdges, seen, fromFile, sourceDef, target, callLine) {
+  if (fromFile === target.file && sourceDef.name === target.def.name) return;
+  const key = `${fromFile}|${sourceDef.name}|${target.file}|${target.def.name}|${callLine}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  symbolEdges.push({
+    fromFile,
+    toFile: target.file,
+    fromSymbol: sourceDef.name,
+    toSymbol: target.def.name,
+    fromKind: sourceDef.kind || 'function',
+    toKind: target.def.kind || 'function',
+    fromLine: sourceDef.line || 0,
+    toLine: target.def.line || 0,
+    callLine,
+    type: 'static-call',
+  });
+}
+
+function buildSymbolEdges(nodes, importsByFile, refsByFile) {
+  const symbolEdges = [];
+  const seen = new Set();
+  const symbolIndex = buildSymbolDefinitionIndex(nodes);
+  const definitionsByFile = buildDefinitionsByFile(nodes);
+
+  for (const node of nodes) {
+    const content = refsByFile.get(node.id) || '';
+    const candidates = buildReferenceCandidates(node.id, definitionsByFile, importsByFile);
+    if (candidates.length === 0) continue;
+    const refs = extractSymbolReferences(content, candidates);
+    const definitions = node.definitions || [];
+    for (const ref of refs) {
+      const sourceDef = findContainingDefinition(definitions, ref.line);
+      if (!sourceDef) continue;
+      const targets = resolveSymbolTargets(node.id, ref.name, symbolIndex, importsByFile);
+      for (const target of targets) {
+        addSymbolEdge(symbolEdges, seen, node.id, sourceDef, target, ref.line);
+      }
+    }
+  }
+  return symbolEdges;
+}
+
 // ============================================================
 // IMPORT RESOLUTION
 // ============================================================
@@ -589,6 +733,7 @@ function getParseProfile(file, content) {
 // ============================================================
 // GENERATE GRAPH (reusable function)
 // ============================================================
+/** @returns {GraphData} */
 function generateGraph(directory) {
   const skippedExts = new Set();
   const allFiles = walkDir(directory, skippedExts);
@@ -596,6 +741,9 @@ function generateGraph(directory) {
 
   const nodes = [];
   const edges = [];
+  const importsByFile = new Map();
+  const refsByFile = new Map();
+  /** @type {Record<string, number>} */
   const langStats = {};
   const parseSummary = {
     [PARSE_STATUS_FULL]: 0,
@@ -649,23 +797,31 @@ function generateGraph(directory) {
       lang: lang,
       preview: previewLines,
       rawPreview,
+      content: content,
       parseStatus,
       parseReason,
       size: fileSize,
     });
 
+    refsByFile.set(relPath, content);
+    const resolvedImports = new Set();
     for (const imp of imports) {
       const resolved = resolveImport(imp, file.fullPath, fileSet, lang, directory);
-      if (resolved) {
-        const targetRel = path.relative(directory, resolved);
-        edges.push({ from: relPath, to: targetRel });
-      }
+      if (!resolved) continue;
+      const targetRel = path.relative(directory, resolved);
+      edges.push({ from: relPath, to: targetRel });
+      resolvedImports.add(targetRel);
     }
+    importsByFile.set(relPath, resolvedImports);
   }
 
-  return {
+  const symbolEdges = buildSymbolEdges(nodes, importsByFile, refsByFile);
+
+  /** @type {GraphData} */
+  const graphData = {
     nodes,
     edges,
+    symbolEdges,
     meta: {
       languages: langStats,
       parseSummary,
@@ -674,6 +830,7 @@ function generateGraph(directory) {
       generatedAt: new Date().toISOString(),
     },
   };
+  return graphData;
 }
 
 function cloneRepo(gitUrl) {

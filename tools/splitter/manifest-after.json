@@ -1,0 +1,974 @@
+[
+  {
+    "name": "escapeHtml",
+    "start": 236,
+    "end": 364,
+    "hash": "802900178"
+  },
+  {
+    "name": "getNodeParseStatus",
+    "start": 3224,
+    "end": 3371,
+    "hash": "1148025369"
+  },
+  {
+    "name": "getParseStatusMeta",
+    "start": 3373,
+    "end": 3733,
+    "hash": "2024481761"
+  },
+  {
+    "name": "getNodePreviewLines",
+    "start": 3735,
+    "end": 4053,
+    "hash": "-1880473135"
+  },
+  {
+    "name": "setPendingOAuth",
+    "start": 4846,
+    "end": 5081,
+    "hash": "-1247054753"
+  },
+  {
+    "name": "getPendingOAuth",
+    "start": 5083,
+    "end": 5711,
+    "hash": "-1194101707"
+  },
+  {
+    "name": "clearPendingOAuth",
+    "start": 5713,
+    "end": 5843,
+    "hash": "1085564551"
+  },
+  {
+    "name": "clearLegacyOAuthState",
+    "start": 5845,
+    "end": 6089,
+    "hash": "706414349"
+  },
+  {
+    "name": "cleanOAuthUrl",
+    "start": 6091,
+    "end": 6186,
+    "hash": "2858818"
+  },
+  {
+    "name": "loadAuthState",
+    "start": 6188,
+    "end": 6684,
+    "hash": "-1730637744"
+  },
+  {
+    "name": "saveAuthState",
+    "start": 6686,
+    "end": 6805,
+    "hash": "-1344454380"
+  },
+  {
+    "name": "updateAuthUi",
+    "start": 6807,
+    "end": 9486,
+    "hash": "-422623085"
+  },
+  {
+    "name": "getGitHubTokenForApi",
+    "start": 9488,
+    "end": 9766,
+    "hash": "1876972518"
+  },
+  {
+    "name": "getGitLabTokenForApi",
+    "start": 9768,
+    "end": 9918,
+    "hash": "-1060013896"
+  },
+  {
+    "name": "getOAuthConfig",
+    "start": 9920,
+    "end": 10155,
+    "hash": "-538786205"
+  },
+  {
+    "name": "base64UrlEncode",
+    "start": 10157,
+    "end": 10389,
+    "hash": "1440960112"
+  },
+  {
+    "name": "sha256Base64Url",
+    "start": 10391,
+    "end": 10598,
+    "hash": "-1195675206"
+  },
+  {
+    "name": "randomString",
+    "start": 10600,
+    "end": 10787,
+    "hash": "-1769807822"
+  },
+  {
+    "name": "openDeviceFlowModal",
+    "start": 10789,
+    "end": 11155,
+    "hash": "-1692117896"
+  },
+  {
+    "name": "closeDeviceFlow",
+    "start": 11157,
+    "end": 11370,
+    "hash": "36069664"
+  },
+  {
+    "name": "openDeviceFlowUrl",
+    "start": 11373,
+    "end": 11586,
+    "hash": "2062434658"
+  },
+  {
+    "name": "logoutAuth",
+    "start": 11589,
+    "end": 12100,
+    "hash": "565216552"
+  },
+  {
+    "name": "openPatModal",
+    "start": 12103,
+    "end": 13224,
+    "hash": "71146696"
+  },
+  {
+    "name": "closePatModal",
+    "start": 13226,
+    "end": 13422,
+    "hash": "-1452005330"
+  },
+  {
+    "name": "savePatToken",
+    "start": 13425,
+    "end": 14913,
+    "hash": "-1797098500"
+  },
+  {
+    "name": "fetchGitHubViewerLogin",
+    "start": 14916,
+    "end": 15392,
+    "hash": "134595634"
+  },
+  {
+    "name": "readJsonFetchResponse",
+    "start": 15394,
+    "end": 15765,
+    "hash": "684702258"
+  },
+  {
+    "name": "getOAuthResponseError",
+    "start": 15767,
+    "end": 16071,
+    "hash": "-339617839"
+  },
+  {
+    "name": "loginGitHub",
+    "start": 16073,
+    "end": 16873,
+    "hash": "1191498229"
+  },
+  {
+    "name": "loginGitLab",
+    "start": 16876,
+    "end": 17704,
+    "hash": "1740646546"
+  },
+  {
+    "name": "completeGitHubOAuthFromUrl",
+    "start": 17707,
+    "end": 20412,
+    "hash": "1965460224"
+  },
+  {
+    "name": "completeGitLabOAuthFromUrl",
+    "start": 20414,
+    "end": 23168,
+    "hash": "1580975354"
+  },
+  {
+    "name": "completeOAuthFromUrl",
+    "start": 23170,
+    "end": 23779,
+    "hash": "-1176873416"
+  },
+  {
+    "name": "loadConnectedProviderData",
+    "start": 23781,
+    "end": 24064,
+    "hash": "-931252202"
+  },
+  {
+    "name": "loadGitHubUser",
+    "start": 24185,
+    "end": 25280,
+    "hash": "-2011214013"
+  },
+  {
+    "name": "loadGitLabUser",
+    "start": 25282,
+    "end": 26383,
+    "hash": "1885995140"
+  },
+  {
+    "name": "loadGitHubRepos",
+    "start": 26385,
+    "end": 27737,
+    "hash": "-1314159359"
+  },
+  {
+    "name": "loadGitLabRepos",
+    "start": 27739,
+    "end": 28945,
+    "hash": "1336696029"
+  },
+  {
+    "name": "displayRepos",
+    "start": 28947,
+    "end": 31228,
+    "hash": "-637323540"
+  },
+  {
+    "name": "displayGitLabRepos",
+    "start": 31230,
+    "end": 33649,
+    "hash": "-2098015312"
+  },
+  {
+    "name": "selectRepo",
+    "start": 33651,
+    "end": 33964,
+    "hash": "-1973347364"
+  },
+  {
+    "name": "loadMoreRepos",
+    "start": 33966,
+    "end": 34177,
+    "hash": "-817931706"
+  },
+  {
+    "name": "getFolderColor",
+    "start": 35533,
+    "end": 35887,
+    "hash": "-910562843"
+  },
+  {
+    "name": "getFolderPrefs",
+    "start": 35889,
+    "end": 36308,
+    "hash": "-579376044"
+  },
+  {
+    "name": "saveFolderPref",
+    "start": 36310,
+    "end": 36888,
+    "hash": "-1833465570"
+  },
+  {
+    "name": "setFolderColor",
+    "start": 36890,
+    "end": 37547,
+    "hash": "-491960161"
+  },
+  {
+    "name": "toggleFolderCollapse",
+    "start": 37549,
+    "end": 37852,
+    "hash": "-184917749"
+  },
+  {
+    "name": "setFolderShape",
+    "start": 37854,
+    "end": 38790,
+    "hash": "-952245961"
+  },
+  {
+    "name": "buildAdjacency",
+    "start": 38945,
+    "end": 39884,
+    "hash": "-854317744"
+  },
+  {
+    "name": "layoutGraph",
+    "start": 40030,
+    "end": 42475,
+    "hash": "-1734758751"
+  },
+  {
+    "name": "layoutGalaxy",
+    "start": 42477,
+    "end": 43825,
+    "hash": "-411845433"
+  },
+  {
+    "name": "layoutFilesystem",
+    "start": 43827,
+    "end": 44751,
+    "hash": "1628159442"
+  },
+  {
+    "name": "getLayoutPositions",
+    "start": 44753,
+    "end": 44994,
+    "hash": "231810276"
+  },
+  {
+    "name": "rebuildEdges",
+    "start": 44996,
+    "end": 45614,
+    "hash": "-142679599"
+  },
+  {
+    "name": "rebuildGraphLayout",
+    "start": 45616,
+    "end": 45967,
+    "hash": "-652362332"
+  },
+  {
+    "name": "cycleLayoutMode",
+    "start": 45969,
+    "end": 46528,
+    "hash": "1557531309"
+  },
+  {
+    "name": "init",
+    "start": 46667,
+    "end": 49516,
+    "hash": "-1402028284"
+  },
+  {
+    "name": "setupMotionControls",
+    "start": 49518,
+    "end": 51238,
+    "hash": "-149637744"
+  },
+  {
+    "name": "buildGraph",
+    "start": 51389,
+    "end": 56036,
+    "hash": "-412308250"
+  },
+  {
+    "name": "toggleFunctionExpansion",
+    "start": 56235,
+    "end": 56403,
+    "hash": "-2110638089"
+  },
+  {
+    "name": "expandFunctions",
+    "start": 56405,
+    "end": 59236,
+    "hash": "-170851710"
+  },
+  {
+    "name": "collapseFunctions",
+    "start": 59238,
+    "end": 59806,
+    "hash": "-706714818"
+  },
+  {
+    "name": "updateRaycastTargets",
+    "start": 59808,
+    "end": 59905,
+    "hash": "-1665234065"
+  },
+  {
+    "name": "updateFunctionRaycastTargets",
+    "start": 59907,
+    "end": 60418,
+    "hash": "-1761188489"
+  },
+  {
+    "name": "resetCallChainHighlight",
+    "start": 60420,
+    "end": 61285,
+    "hash": "-1629203695"
+  },
+  {
+    "name": "computeCallChain",
+    "start": 61287,
+    "end": 62858,
+    "hash": "-851364166"
+  },
+  {
+    "name": "applyCallChainHighlight",
+    "start": 62860,
+    "end": 63827,
+    "hash": "458447048"
+  },
+  {
+    "name": "getNodeById",
+    "start": 63829,
+    "end": 63932,
+    "hash": "822153642"
+  },
+  {
+    "name": "getPrimaryDefinitionLabel",
+    "start": 63934,
+    "end": 64216,
+    "hash": "-2076607040"
+  },
+  {
+    "name": "getGraphSymbolEdges",
+    "start": 64218,
+    "end": 64413,
+    "hash": "119578320"
+  },
+  {
+    "name": "getSymbolEdgeKey",
+    "start": 64415,
+    "end": 64575,
+    "hash": "1886898437"
+  },
+  {
+    "name": "highlightExecutionSymbolLane",
+    "start": 64577,
+    "end": 65419,
+    "hash": "-532062221"
+  },
+  {
+    "name": "selectExecutionSymbolPath",
+    "start": 65421,
+    "end": 65888,
+    "hash": "5580087"
+  },
+  {
+    "name": "renderExecutionPathGroup",
+    "start": 65890,
+    "end": 66138,
+    "hash": "-1181963898"
+  },
+  {
+    "name": "renderSymbolExecutionRow",
+    "start": 66140,
+    "end": 67083,
+    "hash": "655070709"
+  },
+  {
+    "name": "updateExecutionPathPanelFallback",
+    "start": 67085,
+    "end": 68008,
+    "hash": "-746924291"
+  },
+  {
+    "name": "updateExecutionPathPanelWithSymbols",
+    "start": 68010,
+    "end": 68872,
+    "hash": "-48235091"
+  },
+  {
+    "name": "selectExecutionPathNode",
+    "start": 68874,
+    "end": 69209,
+    "hash": "-768213957"
+  },
+  {
+    "name": "updateExecutionPathPanel",
+    "start": 69211,
+    "end": 70216,
+    "hash": "-1875331541"
+  },
+  {
+    "name": "buildPathSearchIndex",
+    "start": 70218,
+    "end": 71355,
+    "hash": "1842921364"
+  },
+  {
+    "name": "resolveHoverTarget",
+    "start": 71357,
+    "end": 72329,
+    "hash": "809805164"
+  },
+  {
+    "name": "updateFunctionPanel",
+    "start": 72331,
+    "end": 73405,
+    "hash": "490693204"
+  },
+  {
+    "name": "showNodeFallbackPanel",
+    "start": 73407,
+    "end": 74638,
+    "hash": "678387031"
+  },
+  {
+    "name": "updateFunctionOrbits",
+    "start": 74669,
+    "end": 76057,
+    "hash": "1961848755"
+  },
+  {
+    "name": "getWsPortFromMeta",
+    "start": 76411,
+    "end": 76629,
+    "hash": "1366022319"
+  },
+  {
+    "name": "buildMultiplayerWsUrl",
+    "start": 76631,
+    "end": 77043,
+    "hash": "313202510"
+  },
+  {
+    "name": "connectMultiplayer",
+    "start": 77168,
+    "end": 79717,
+    "hash": "1185859687"
+  },
+  {
+    "name": "sendPositionUpdate",
+    "start": 79719,
+    "end": 80095,
+    "hash": "-542468304"
+  },
+  {
+    "name": "createRemotePlayer",
+    "start": 80097,
+    "end": 81585,
+    "hash": "1915816846"
+  },
+  {
+    "name": "updateRemotePlayer",
+    "start": 81587,
+    "end": 82144,
+    "hash": "-1809334441"
+  },
+  {
+    "name": "updateRemotePlayerLabel",
+    "start": 82146,
+    "end": 82558,
+    "hash": "632648314"
+  },
+  {
+    "name": "removeRemotePlayer",
+    "start": 82560,
+    "end": 82781,
+    "hash": "-1252745220"
+  },
+  {
+    "name": "updateOnlineCount",
+    "start": 82783,
+    "end": 83338,
+    "hash": "-538018508"
+  },
+  {
+    "name": "hslToHex",
+    "start": 83340,
+    "end": 83647,
+    "hash": "-1727934619"
+  },
+  {
+    "name": "addChatMessage",
+    "start": 83785,
+    "end": 84253,
+    "hash": "-142195176"
+  },
+  {
+    "name": "sendChat",
+    "start": 84255,
+    "end": 84484,
+    "hash": "1334993893"
+  },
+  {
+    "name": "createTextSprite",
+    "start": 84629,
+    "end": 85411,
+    "hash": "-1989277165"
+  },
+  {
+    "name": "buildLegend",
+    "start": 85413,
+    "end": 86833,
+    "hash": "1208238591"
+  },
+  {
+    "name": "setupControls",
+    "start": 86975,
+    "end": 93374,
+    "hash": "-1077164058"
+  },
+  {
+    "name": "updateCameraView",
+    "start": 93376,
+    "end": 93540,
+    "hash": "2102048842"
+  },
+  {
+    "name": "updateMovement",
+    "start": 93682,
+    "end": 95662,
+    "hash": "1552563657"
+  },
+  {
+    "name": "updateHover",
+    "start": 95841,
+    "end": 98442,
+    "hash": "288965639"
+  },
+  {
+    "name": "updateMinimap",
+    "start": 98583,
+    "end": 100825,
+    "hash": "-1720352550"
+  },
+  {
+    "name": "highlightNodes",
+    "start": 100978,
+    "end": 102119,
+    "hash": "-20022073"
+  },
+  {
+    "name": "setActiveFilterButton",
+    "start": 102121,
+    "end": 102434,
+    "hash": "-1195206963"
+  },
+  {
+    "name": "showResults",
+    "start": 102436,
+    "end": 103104,
+    "hash": "-1919569421"
+  },
+  {
+    "name": "flyToNode",
+    "start": 103106,
+    "end": 103416,
+    "hash": "-1737490656"
+  },
+  {
+    "name": "clearFilters",
+    "start": 103418,
+    "end": 104027,
+    "hash": "71021872"
+  },
+  {
+    "name": "filterOrphans",
+    "start": 104030,
+    "end": 104429,
+    "hash": "804895297"
+  },
+  {
+    "name": "filterHubs",
+    "start": 104432,
+    "end": 104852,
+    "hash": "1127237602"
+  },
+  {
+    "name": "filterLargest",
+    "start": 104855,
+    "end": 105074,
+    "hash": "-1828752679"
+  },
+  {
+    "name": "filterCircular",
+    "start": 105077,
+    "end": 105948,
+    "hash": "2082534628"
+  },
+  {
+    "name": "dfs",
+    "start": 105350,
+    "end": 105826,
+    "hash": "375964247"
+  },
+  {
+    "name": "filterNoDefinitions",
+    "start": 105951,
+    "end": 106172,
+    "hash": "-649539313"
+  },
+  {
+    "name": "filterByKind",
+    "start": 106175,
+    "end": 106406,
+    "hash": "437317202"
+  },
+  {
+    "name": "filterByLang",
+    "start": 106409,
+    "end": 106586,
+    "hash": "1662959383"
+  },
+  {
+    "name": "filterByFolder",
+    "start": 106589,
+    "end": 106777,
+    "hash": "-923954922"
+  },
+  {
+    "name": "filterApiSurface",
+    "start": 106780,
+    "end": 107096,
+    "hash": "-1331178906"
+  },
+  {
+    "name": "filterHotPaths",
+    "start": 107099,
+    "end": 107489,
+    "hash": "-1811637664"
+  },
+  {
+    "name": "filterRiskZones",
+    "start": 107492,
+    "end": 107868,
+    "hash": "-1173665107"
+  },
+  {
+    "name": "filterEntryPoints",
+    "start": 107871,
+    "end": 108195,
+    "hash": "2124676447"
+  },
+  {
+    "name": "computeCommitAgeDays",
+    "start": 108198,
+    "end": 108501,
+    "hash": "665668531"
+  },
+  {
+    "name": "applyChurnHeatmap",
+    "start": 108503,
+    "end": 109650,
+    "hash": "-1596218914"
+  },
+  {
+    "name": "toggleChurnHeat",
+    "start": 109652,
+    "end": 110919,
+    "hash": "1208443797"
+  },
+  {
+    "name": "applyBlameOverlay",
+    "start": 110922,
+    "end": 112204,
+    "hash": "-100112705"
+  },
+  {
+    "name": "toggleBlameOverlay",
+    "start": 112206,
+    "end": 113374,
+    "hash": "526480401"
+  },
+  {
+    "name": "addLandmark",
+    "start": 113377,
+    "end": 113702,
+    "hash": "1648531901"
+  },
+  {
+    "name": "persistLandmarks",
+    "start": 113704,
+    "end": 113810,
+    "hash": "-1482670607"
+  },
+  {
+    "name": "hydrateLandmarks",
+    "start": 113812,
+    "end": 114218,
+    "hash": "-2064700790"
+  },
+  {
+    "name": "renderLandmarks",
+    "start": 114220,
+    "end": 114633,
+    "hash": "188501200"
+  },
+  {
+    "name": "playLandmarkTour",
+    "start": 114635,
+    "end": 115089,
+    "hash": "504611971"
+  },
+  {
+    "name": "buildTourLink",
+    "start": 115092,
+    "end": 115393,
+    "hash": "1184471409"
+  },
+  {
+    "name": "exportTourLink",
+    "start": 115395,
+    "end": 115865,
+    "hash": "-1186094565"
+  },
+  {
+    "name": "showTourQr",
+    "start": 115868,
+    "end": 116462,
+    "hash": "-1451985281"
+  },
+  {
+    "name": "closeTourQr",
+    "start": 116465,
+    "end": 116666,
+    "hash": "-1538714641"
+  },
+  {
+    "name": "importTourFromUrl",
+    "start": 116669,
+    "end": 117048,
+    "hash": "-1777986399"
+  },
+  {
+    "name": "applyFolderCollapse",
+    "start": 117050,
+    "end": 117552,
+    "hash": "-145103587"
+  },
+  {
+    "name": "buildAnalyticsFilters",
+    "start": 117554,
+    "end": 119010,
+    "hash": "-2132678788"
+  },
+  {
+    "name": "animate",
+    "start": 119204,
+    "end": 120408,
+    "hash": "430682006"
+  },
+  {
+    "name": "buildSearchIndex",
+    "start": 120580,
+    "end": 121039,
+    "hash": "1082046578"
+  },
+  {
+    "name": "openSearch",
+    "start": 121041,
+    "end": 121357,
+    "hash": "-522768568"
+  },
+  {
+    "name": "closeSearch",
+    "start": 121359,
+    "end": 121570,
+    "hash": "-858298004"
+  },
+  {
+    "name": "updateFlyTarget",
+    "start": 121572,
+    "end": 121991,
+    "hash": "-1449803844"
+  },
+  {
+    "name": "showBlastRadius",
+    "start": 121993,
+    "end": 123236,
+    "hash": "720301524"
+  },
+  {
+    "name": "openInEditor",
+    "start": 123239,
+    "end": 123598,
+    "hash": "107103918"
+  },
+  {
+    "name": "openIdePicker",
+    "start": 123600,
+    "end": 126322,
+    "hash": "-452242065"
+  },
+  {
+    "name": "openIdePickerFromHover",
+    "start": 126324,
+    "end": 126505,
+    "hash": "103493762"
+  },
+  {
+    "name": "closeIdePicker",
+    "start": 126508,
+    "end": 126718,
+    "hash": "-1365491608"
+  },
+  {
+    "name": "openFolderSettings",
+    "start": 126721,
+    "end": 129982,
+    "hash": "875550454"
+  },
+  {
+    "name": "closeFolderSettings",
+    "start": 129984,
+    "end": 130224,
+    "hash": "1364494142"
+  },
+  {
+    "name": "loadLocalFolder",
+    "start": 130227,
+    "end": 132359,
+    "hash": "-251908575"
+  },
+  {
+    "name": "performSearch",
+    "start": 132362,
+    "end": 134513,
+    "hash": "-365853308"
+  },
+  {
+    "name": "resolveIntentTarget",
+    "start": 134515,
+    "end": 135587,
+    "hash": "242421652"
+  },
+  {
+    "name": "loadAndStart",
+    "start": 135733,
+    "end": 138177,
+    "hash": "147203117"
+  },
+  {
+    "name": "showLoading",
+    "start": 138180,
+    "end": 138853,
+    "hash": "1157622360"
+  },
+  {
+    "name": "showLoadError",
+    "start": 138855,
+    "end": 138997,
+    "hash": "1890722996"
+  },
+  {
+    "name": "hideLoadError",
+    "start": 138999,
+    "end": 139092,
+    "hash": "-713621718"
+  },
+  {
+    "name": "loadRecentRepos",
+    "start": 139094,
+    "end": 139367,
+    "hash": "-1442557992"
+  },
+  {
+    "name": "showLimitations",
+    "start": 139522,
+    "end": 141137,
+    "hash": "-2135375551"
+  },
+  {
+    "name": "openContactModal",
+    "start": 141139,
+    "end": 141280,
+    "hash": "1705536609"
+  },
+  {
+    "name": "closeContactModal",
+    "start": 141283,
+    "end": 141392,
+    "hash": "1226561849"
+  },
+  {
+    "name": "sendContactMessage",
+    "start": 141395,
+    "end": 141950,
+    "hash": "-1260824863"
+  }
+]

@@ -1,59 +1,158 @@
 # AGENTS.md
 
-## Mission
+## Current mission
 
-Implement real static execution-path support for CodeFly.
+Prepare CodeFly for a non-embarrassing public beta release.
 
-The current UI has an execution-path panel, but it is backed by file-level dependency edges. That is not enough. The correct fix is to move the feature to the graph-generation ownership layer and emit symbol-level static call/reference edges as authoritative graph data.
+Postpone release by **10 working days** and ship a smaller, stable product:
 
-## Non-negotiable architecture
-
-- **Authoritative state lives in graph data.**
-  - Add a top-level `symbolEdges` array to generated graph output.
-  - Do not infer symbol execution paths only inside `explorer.js`.
-
-- **Graph generation owns extraction.**
-  - `graph-generator.js` must emit `symbolEdges` for browser-generated GitHub, GitLab, and local-folder graphs.
-  - `generate-graph.js` must emit the same schema for CLI/static generated graphs.
-
-- **UI owns rendering and interaction only.**
-  - `explorer.js` should consume `graphData.symbolEdges`.
-  - It may fall back to file-level `edges` only if `symbolEdges` is missing or empty, for older graph payloads.
-
-- **Do not implement runtime call stacks.**
-  - This is static expected execution/dependency flow only.
-
-- **Do not introduce parallel path systems.**
-  - `symbolEdges` is the one authoritative contract for function/class/variable paths.
-  - Do not add separate ad-hoc path caches as the source of truth.
-
-## Current relevant files
-
-- `graph-generator.js`
-  - Browser-side graph generation.
-  - Used by GitHub, GitLab, and local folder loading.
-  - Currently creates file nodes with `definitions`, import sets, and file-level `edges`.
-
-- `generate-graph.js`
-  - CLI/static graph generator.
-  - Must stay schema-compatible with `graph-generator.js`.
-
-- `explorer.js`
-  - 3D graph renderer, search, call-chain highlight, execution-path panel.
-  - Recently added approximate execution-path UI using file-level `edges`.
-
-- `index.html`
-  - Contains search overlay and `#executionPathPanel`.
-
-## Existing limitation to solve
-
-The app currently uses file-level dependency edges like:
-
-```js
-{ from: 'src/a.js', to: 'src/b.js' }
+```text
+CodeFly is a browser-based 3D codebase explorer for quickly understanding unfamiliar repositories.
 ```
 
-The requested feature needs symbol-level static execution edges like:
+Codex must optimize for product truth, runtime stability, clean code, and one authoritative path per concern.
+
+## Product promise
+
+Ship CodeFly as:
+
+- a visual codebase understanding tool
+- a browser-first 3D repo explorer
+- a way to inspect files, dependencies, definitions, and static execution paths
+
+Do not position CodeFly as:
+
+- a chat app
+- an AI assistant
+- a full collaboration platform
+- a runtime tracing tool
+- a complete analytics suite
+
+## Release ownership rules
+
+- **Authoritative product state:** generated graph data.
+- **Authoritative execution-path contract:** `graphData.symbolEdges`.
+- **Primary app owner:** `index.html`, `explorer.js`, and `graph-generator.js`.
+- **Static/CLI graph owner:** `generate-graph.js`.
+- **Deployment owner:** static/browser release first.
+- **Runtime/config owner:** user browser owns local folder access, tokens, graph state, and UI state.
+- **Multiplayer owner:** optional presence only; it must never block solo exploration.
+
+Reject parallel paths:
+
+- duplicate graph schemas
+- chat-first positioning
+- execution-path inference outside `symbolEdges`
+- required multiplayer for solo exploration
+- separate manual demo-only code paths
+- duplicate deployment paths
+
+## Clean code rules Codex cannot break
+
+These rules apply to all production code changes.
+
+- **Function hard limit:** 30 lines maximum.
+- **Preferred function size:** 5-20 lines.
+- **File preferred max:** 200 lines.
+- **File hard warning:** 300 lines.
+- **Tests exception:** test files may be longer, but each test case must read as a clear story.
+- **Entry functions:** must read as a pipeline/story.
+- **No inline algorithms in orchestration:** orchestration functions call named helpers instead of embedding logic.
+- **Single responsibility:** each function should do one thing at one level of abstraction.
+- **No boolean maze:** if a function needs many flags, split it into named functions.
+- **No hidden global mutation:** mutation of shared state must be isolated in clearly named functions.
+- **No duplicate logic:** extract repeated behavior after the second real use.
+- **No speculative abstractions:** do not add frameworks, generic layers, registries, or factories without a current verified need.
+- **No mixed ownership:** UI renders and handles interaction; graph generation extracts graph data.
+- **No silent failures:** user-facing operations must either succeed or show a recoverable error.
+- **No swallowed errors in critical paths:** catch only where the app can recover or show a meaningful message.
+- **No magic strings for shared contracts:** centralize repeated event names, graph field names, and storage keys when touched.
+- **No large anonymous callbacks:** move non-trivial callbacks into named functions.
+- **No nested control-flow pyramids:** prefer early returns and small guard functions.
+- **No direct DOM sprawl in business logic:** keep DOM updates in focused rendering/update helpers.
+- **No network logic inside rendering helpers:** fetch/IO belongs in loading/service helpers.
+- **No parser drift:** browser graph generation and CLI graph generation must emit compatible schemas.
+- **No release-copy overpromises:** copy must match verified behavior.
+- **No broken backward compatibility for old graphs:** old graph payloads without `symbolEdges` must still load.
+- **No unrelated cleanup:** only change code required by the current release task.
+
+## Required verification discipline
+
+Before changing code, Codex must identify:
+
+- the user-visible failure or release risk
+- the exact local path that owns it
+- the higher-level ownership or lifecycle cause
+- where the critical state lives
+- who creates it
+- who reads it
+- who destroys or resets it
+- what happens if that owner fails
+
+Prefer the smallest fix at the highest verified layer:
+
+1. broken ownership/lifecycle/contract
+2. broken service boundary
+3. broken local mechanism
+4. logs
+5. wording
+
+Do not patch symptoms if the ownership problem is visible.
+
+## Launch feature contract
+
+Headline features:
+
+- public GitHub/GitLab repo loading
+- local folder loading
+- 3D file/dependency graph
+- file/function/class search
+- static execution paths from `graphData.symbolEdges`
+- basic dependency insights
+- open file in GitHub/GitLab/local IDE where supported
+
+Secondary or beta:
+
+- private repo token/OAuth flows
+- multiplayer presence
+- chat, only if already stable and non-blocking
+
+Do not launch-market:
+
+- persistent team chat
+- guided tours
+- QR sharing
+- churn heatmap
+- blame overlay
+- advanced analytics platform claims
+
+## Static execution-path architecture
+
+This work remains required for the public beta, but it is part of release hardening, not a separate mission.
+
+### Non-negotiable contract
+
+- `symbolEdges` is the authoritative source for static execution paths.
+- `edges` remains file-level and continues to power layout, dependency lines, filters, blast radius, and file lanes.
+- `explorer.js` consumes `graphData.symbolEdges` for path search and execution panels.
+- `explorer.js` may fall back to file-level `edges` only when `symbolEdges` is missing or empty.
+- Do not implement runtime call stacks.
+- Do not create fake 3D function nodes unless already supported by existing function orbit UI.
+
+### Required graph schema
+
+Generated graph objects must include:
+
+```js
+{
+  nodes: [...],
+  edges: [...],
+  symbolEdges: [...],
+  meta: {...}
+}
+```
+
+Each symbol edge should use this shape:
 
 ```js
 {
@@ -70,213 +169,211 @@ The requested feature needs symbol-level static execution edges like:
 }
 ```
 
-## Required graph schema
+### Extraction rules
 
-Generated graph objects must become:
-
-```js
-{
-  nodes: [...],
-  edges: [...],
-  symbolEdges: [...],
-  meta: {...}
-}
-```
-
-`edges` remains file-level and continues to power layout, dependency lines, filters, blast radius, etc.
-
-`symbolEdges` powers execution paths, global path search, and path panel rows.
-
-## Extraction rules
-
-### Definitions
-
-Use existing `definitions` already attached to nodes. Each definition has:
-
-```js
-{ name, line, kind }
-```
-
-Kinds include at least:
-
-- `function`
-- `class`
-- `variable`
-
-### Symbol references
-
-Add a helper in both graph generators:
-
-```js
-function extractSymbolReferences(content, knownDefinitions) {
-  // returns [{ name, line }]
-}
-```
-
-The first implementation can be regex-based and conservative.
-
-Rules:
-
-- Match function/class usage by identifier name.
-- For function calls, match `name(`.
-- For class constructors/usages, match `new Name(` and plain `Name(` where applicable.
-- Avoid matching language keywords.
-- Avoid self-recursive edge from a function to itself unless explicitly wanted later.
-- Include only references whose target symbol exists in graph definitions.
-
-### Cross-file resolution
-
-Build an index:
-
-```js
-Map<symbolName, Array<{ file, def }>>
-```
-
-Then resolve references:
-
-- If the target symbol is in the same file, create same-file symbol edge.
-- If the target symbol is in an imported file, create cross-file symbol edge.
-- For ambiguous names across multiple imported files, emit edges only for imported-file candidates.
+- Use existing node `definitions`.
+- Match only references whose target symbol exists in graph definitions.
+- Resolve same-file references.
+- Resolve cross-file references only through imported files.
 - Do not guess across unrelated files.
+- For ambiguous names, emit only imported-file candidates.
+- Attribute source symbol to the nearest containing definition with `def.line <= referenceLine`.
+- Prefer function definitions as source.
+- Skip edges when no source symbol exists.
+- Avoid self-recursive edges unless intentionally added later.
 
-### Source symbol attribution
+## Day 1 — Freeze scope and remove misleading promises
 
-For each reference line, determine the nearest containing source symbol.
+Codex must:
 
-Minimum acceptable implementation:
+- Update README/product copy to describe CodeFly as a visual codebase explorer.
+- Remove or downgrade claims that imply persistent team chat or full collaboration.
+- Mark private repo auth/token flows as beta unless verified end-to-end.
+- Ensure launch copy does not promise runtime tracing.
+- Ensure launch copy calls execution paths static/dependency-based.
+- Identify dead, unstable, or confusing launch UI controls and either hide them or label them experimental.
 
-- Sort definitions in a file by line.
-- For a reference on line `N`, source symbol is the nearest definition with `def.line <= N`.
-- Prefer `function` definitions as source.
-- If no source symbol exists, skip the symbol edge.
+Acceptance:
 
-This is much better than using the first function in a file.
+- README and visible app copy match the launch feature contract.
+- No launch-facing text claims chat-first collaboration.
+- No launch-facing text claims runtime call stacks.
 
-## Implementation details
+## Day 2 — Simplify first-run UX
 
-### In `graph-generator.js`
+Codex must:
 
-Add helpers near parser utilities:
+- Make the start screen explain one primary action: paste a repo URL or choose a local folder.
+- Ensure public repo loading and local folder loading are visually prioritized over auth.
+- Ensure unsupported browser/local-folder states show clear errors.
+- Ensure loading copy tells users what is happening.
+- Ensure errors leave the user on a recoverable start screen.
 
-- `escapeRegexLiteral(value)`
-- `extractSymbolReferences(content, definitions)`
-- `findContainingDefinition(definitions, line)`
-- `buildSymbolEdges(nodes, importsByFile, refsByFile)`
+Acceptance:
 
-During each graph generation flow:
+- A new user can understand what to do in under 10 seconds.
+- Failed load does not leave the app stuck.
+- Auth is not required for the primary demo path.
 
-- Keep `importsByFile = new Map()`.
-- Keep `refsByFile = new Map()`.
-- After `buildNodeFromContent(file, content)`, call `extractSymbolReferences(content, node.definitions)`.
-- Resolve imports as today for file-level `edges`.
-- Store the resolved imported files in `importsByFile`.
-- After all nodes are built, call:
+## Day 3 — Stabilize public repo loading
 
-```js
-const symbolEdges = buildSymbolEdges(nodes, importsByFile, refsByFile);
-```
+Codex must:
 
-Return `symbolEdges` in GitHub, GitLab, and local-folder graph outputs.
+- Verify public GitHub repo loading.
+- Verify public GitLab repo loading.
+- Fix graph generation failures that break normal public repos.
+- Ensure unsupported files become nodes instead of crashing.
+- Ensure invalid repo URLs show actionable errors.
 
-### In `generate-graph.js`
+Acceptance:
 
-Implement the exact same schema and helper behavior.
+- One small GitHub repo loads.
+- One medium GitHub repo loads.
+- One public GitLab repo loads.
+- Console has no uncaught app-breaking errors in the normal path.
 
-Do not let CLI output drift from browser output.
+## Day 4 — Stabilize local folder loading
 
-## UI changes in `explorer.js`
+Codex must:
 
-### Build path search index from `symbolEdges`
+- Verify local folder loading in a browser that supports `showDirectoryPicker`.
+- Ensure local file content is not uploaded to any server.
+- Ensure denied folder permissions preserve the start screen.
+- Ensure empty folders and unsupported-heavy folders do not crash.
+- Ensure local graph output includes the same schema as browser repo loading.
 
-Update `buildPathSearchIndex()`:
+Acceptance:
 
-- Prefer `graphData.symbolEdges` if present and non-empty.
-- Convert each symbol edge to a search row:
+- Local folder load renders a graph.
+- Denied access shows a clear message.
+- Local loading remains browser-owned.
 
-```js
-{
-  type: 'path',
-  name: `${fromSymbol} → ${toSymbol}`,
-  path: `${fromFile}:${callLine} → ${toFile}:${toLine}`,
-  fromId: fromFile,
-  toId: toFile,
-  symbolEdge
-}
-```
+## Day 5 — Finish static execution paths
 
-- Only fall back to file-level `edges` if `symbolEdges` is missing or empty.
+Codex must:
 
-### Execution path panel
+- Complete `symbolEdges` generation in `graph-generator.js`.
+- Complete matching schema in `generate-graph.js`.
+- Ensure `explorer.js` consumes `graphData.symbolEdges`.
+- Keep file-level edge fallback only for old/missing graph payloads.
+- Ensure execution path rows show symbol names and line numbers.
+- Ensure clicking a path highlights source and target file nodes.
 
-Update `updateExecutionPathPanel(nodeId)`:
+Acceptance:
 
-- If `symbolEdges` exists, show symbol-level rows grouped as:
-  - `CALLS` / outbound edges where `fromFile === nodeId`
-  - `CALLED BY` / inbound edges where `toFile === nodeId`
-- Row label should include symbol names and line numbers.
-- Clicking a row should:
-  - highlight the file-level lane between `fromFile` and `toFile`
-  - fly to the target file node
-  - keep the execution-path panel visible
+- `graphData.symbolEdges` exists for newly generated graphs.
+- Symbol edges contain real `fromSymbol` and `toSymbol` values.
+- Execution panel shows `CALLS` and `CALLED BY` when symbol data exists.
+- Older graphs without `symbolEdges` still work.
 
-### Highlighting
+## Day 6 — Make search useful
 
-Use file-level meshes/edges for now, because rendered nodes are still files.
+Codex must:
 
-- Highlight source file node.
-- Highlight target file node.
-- Highlight the file-level edge if it exists.
-- If same-file call, highlight only that file node and panel row.
+- Verify `Cmd+K` / `Ctrl+K` opens and closes cleanly.
+- Ensure search indexes files, functions, classes, and symbol paths.
+- Ensure path queries like `path auth`, `calls token`, and symbol names return useful results.
+- Ensure clicking search results flies to the correct file node.
+- Ensure empty search states are not broken or confusing.
 
-Do not create fake 3D function nodes for this task unless already supported by existing function orbit UI.
+Acceptance:
 
-### Search behavior
+- Search is usable as the main navigation tool.
+- Symbol-level path results appear when `symbolEdges` exists.
+- Clicking results does not hide or corrupt graph state.
 
-`Cmd+K` / `Ctrl+K` must return symbol-level path results.
+## Day 7 — Trim analytics to reliable dependency insights
 
-Queries like these should work:
+Codex must:
 
-- `handleLogin`
-- `exchangeToken`
-- `path auth`
-- `calls token`
-- `execution login`
+- Keep only reliable dependency insights visible for launch.
+- Verify orphan files, hub files, and blast radius.
+- Hide or remove launch emphasis from unstable advanced analytics.
+- Ensure analytics failures do not break graph navigation.
 
-## Verification checklist
+Acceptance:
 
-Run these before committing:
+- Basic insights work on a loaded repo.
+- Unstable lenses are not marketed as launch features.
+- Analytics panel can be opened and closed without trapping pointer/input state.
+
+## Day 8 — Multiplayer must not hurt solo mode
+
+Codex must:
+
+- Ensure WebSocket failures do not block loading or exploring a repo.
+- Ensure remote presence errors do not crash rendering.
+- Ensure chat is hidden, secondary, or clearly experimental if not fully verified.
+- Ensure solo mode is the default reliable experience.
+- Remove any copy that makes multiplayer required for value.
+
+Acceptance:
+
+- App works fully with multiplayer unavailable.
+- Multiplayer failure is non-fatal.
+- Chat is not positioned as the reason to use the app.
+
+## Day 9 — Release QA pass
+
+Codex must test these repos/inputs:
+
+- one small JavaScript repo
+- one medium mixed-language repo
+- this CodeFly repo itself
+- one local folder
+- one invalid repo URL
+- one unsupported-heavy folder/repo
+
+Codex must verify:
+
+- no stuck loading state
+- no uncaught crash during normal navigation
+- search opens, returns results, and navigates
+- node click opens useful panels
+- execution paths show symbol rows when available
+- load errors are human-readable
+- pointer lock can be escaped
+- app remains usable without multiplayer
+
+Acceptance:
+
+- Every critical launch path either succeeds or fails gracefully.
+- No known embarrassing bug remains in headline features.
+
+## Day 10 — Ship public beta
+
+Codex must:
+
+- Run syntax checks:
 
 ```bash
 node --check graph-generator.js
 node --check generate-graph.js
 node --check explorer.js
+node --check server.js
 ```
 
-Then generate or load a graph and verify:
+- Run the app locally with `npm start`.
+- Verify the golden demo path.
+- Update README with public beta positioning.
+- Commit the finished release-hardening work.
 
-- `graphData.symbolEdges` exists.
-- It contains real `fromSymbol` and `toSymbol` values.
-- `Cmd+K` shows `[PATH] functionA → functionB` results.
-- Clicking a path result highlights source and target files.
-- Clicking a file node shows symbol-level `CALLS` and `CALLED BY` rows when data exists.
-- Older graph payloads without `symbolEdges` still fall back to file dependency paths.
-
-## Commit requirement
-
-Commit and push the finished implementation.
-
-Suggested commit message:
+Suggested final release commit:
 
 ```bash
-git commit -m "Add symbol-level static execution paths"
+git commit -m "Prepare CodeFly public beta release"
 ```
 
-## Current known context
+## Final release bar
 
-Recent commit before this work:
+Ship only if:
 
-```text
-c1fd55e Add static execution path explorer
-```
+- public repo exploration works
+- local folder exploration works
+- search is reliable
+- static execution paths are truthful
+- unsupported files do not crash the app
+- solo mode works without multiplayer
+- copy does not overpromise chat, runtime tracing, or full collaboration
 
-That commit added the UI shell and approximate file-level path behavior. This task must replace the approximation with real symbol-level graph data while keeping backward compatibility.
+If any of those fail, do not ship.

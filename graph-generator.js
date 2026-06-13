@@ -1,6 +1,13 @@
+// @ts-check
 // ============================================================
 // CLIENT-SIDE GRAPH GENERATOR — uses GitHub API, no server needed
 // ============================================================
+
+/** @typedef {import('./types/graph-contract').GraphData} GraphData */
+
+// DEV MODE: Set to true to use hardcoded token for testing
+const DEV_MODE = false;
+const DEV_GITHUB_TOKEN = 'YOUR_GITHUB_TOKEN_HERE';
 
 const EXCLUDED_DIRS = new Set([
   'node_modules', '__pycache__', '.git', 'build', 'dist',
@@ -185,7 +192,8 @@ async function fetchGitLabFileRaw(projectId, branch, filePath, headers) {
 
 async function fetchGitHubTree(owner, repo, token) {
   const headers = { 'Accept': 'application/vnd.github.v3+json' };
-  if (token) headers['Authorization'] = `token ${token}`;
+  const effectiveToken = token || (DEV_MODE ? DEV_GITHUB_TOKEN : null);
+  if (effectiveToken) headers['Authorization'] = `token ${effectiveToken}`;
 
   // Get default branch
   const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
@@ -249,7 +257,8 @@ async function fetchCommitDatesForRepo(repoFull, token, files, onProgress) {
   const owner = parts[0];
   const repo = parts[1];
   const headers = { 'Accept': 'application/vnd.github.v3+json' };
-  if (token) headers['Authorization'] = `token ${token}`;
+  const effectiveToken = token || (DEV_MODE ? DEV_GITHUB_TOKEN : null);
+  if (effectiveToken) headers['Authorization'] = `token ${effectiveToken}`;
 
   const commitDates = {};
   let processed = 0;
@@ -399,6 +408,7 @@ function extractDefinitions(content, lang) {
   const patterns = {
     javascript: [
       [/^\s*(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/gm, 'function'],
+      [/^\s*export\s+(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/gm, 'function'],
       [/^\s*(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/gm, 'function'],
       [/^\s*(?:async\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)\s*\{/gm, 'function'],
       [/(?:module\.)?exports\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=/gm, 'function'],
@@ -520,6 +530,146 @@ function extractDefinitions(content, lang) {
     }
   }
   return defs;
+}
+
+function escapeRegexLiteral(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSymbolMatchers(names) {
+  return names.map((name) => {
+    const escaped = escapeRegexLiteral(name);
+    return {
+      name,
+      call: new RegExp(`(^|[^\\w$])(?:new\\s+)?${escaped}\\s*\\(`),
+      usage: new RegExp(`(^|[^\\w$])${escaped}([^\\w$]|$)`),
+      declaration: new RegExp(`\\b(function|class|const|let|var|type|interface|enum|def|fn|func)\\s+${escaped}\\b`),
+    };
+  });
+}
+
+function extractSymbolReferences(content, knownDefinitions) {
+  if (typeof content !== 'string' || content.length === 0 || !Array.isArray(knownDefinitions)) return [];
+  const names = [...new Set(knownDefinitions.map((def) => def.name).filter(Boolean))];
+  if (names.length === 0) return [];
+  const refs = [];
+  const seen = new Set();
+  const matchers = buildSymbolMatchers(names);
+  const lines = content.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const matcher of matchers) {
+      if (matcher.declaration.test(line)) continue;
+      if (!matcher.call.test(line) && !matcher.usage.test(line)) continue;
+      const key = `${matcher.name}@${i + 1}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refs.push({ name: matcher.name, line: i + 1 });
+    }
+  }
+  return refs;
+}
+
+function findContainingDefinition(definitions, line) {
+  if (!Array.isArray(definitions) || definitions.length === 0) return null;
+  const sorted = [...definitions].sort((a, b) => a.line - b.line);
+  let nearest = null;
+  let nearestFunction = null;
+
+  for (const def of sorted) {
+    if (def.line > line) break;
+    nearest = def;
+    if (def.kind === 'function') nearestFunction = def;
+  }
+  return nearestFunction || nearest;
+}
+
+function buildSymbolDefinitionIndex(nodes) {
+  const symbolIndex = new Map();
+  for (const node of nodes) {
+    for (const def of node.definitions || []) {
+      if (!symbolIndex.has(def.name)) symbolIndex.set(def.name, []);
+      symbolIndex.get(def.name).push({ file: node.id, def });
+    }
+  }
+  return symbolIndex;
+}
+
+function buildDefinitionsByFile(nodes) {
+  const definitionsByFile = new Map();
+  for (const node of nodes) {
+    definitionsByFile.set(node.id, node.definitions || []);
+  }
+  return definitionsByFile;
+}
+
+function buildReferenceCandidates(fileId, definitionsByFile, importsByFile) {
+  const byName = new Map();
+  const addDefs = (defs) => {
+    for (const def of defs || []) {
+      if (!def || !def.name || byName.has(def.name)) continue;
+      byName.set(def.name, def);
+    }
+  };
+
+  addDefs(definitionsByFile.get(fileId));
+  for (const importedFile of importsByFile.get(fileId) || []) {
+    addDefs(definitionsByFile.get(importedFile));
+  }
+  return Array.from(byName.values());
+}
+
+function resolveSymbolTargets(fromFile, refName, symbolIndex, importsByFile) {
+  const candidates = symbolIndex.get(refName) || [];
+  if (candidates.length === 0) return [];
+  const sameFile = candidates.filter((candidate) => candidate.file === fromFile);
+  if (sameFile.length > 0) return sameFile;
+  const importedFiles = importsByFile.get(fromFile) || new Set();
+  return candidates.filter((candidate) => importedFiles.has(candidate.file));
+}
+
+function addSymbolEdge(symbolEdges, seen, fromFile, sourceDef, target, callLine) {
+  if (fromFile === target.file && sourceDef.name === target.def.name) return;
+  const key = `${fromFile}|${sourceDef.name}|${target.file}|${target.def.name}|${callLine}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  symbolEdges.push({
+    fromFile,
+    toFile: target.file,
+    fromSymbol: sourceDef.name,
+    toSymbol: target.def.name,
+    fromKind: sourceDef.kind || 'function',
+    toKind: target.def.kind || 'function',
+    fromLine: sourceDef.line || 0,
+    toLine: target.def.line || 0,
+    callLine,
+    type: 'static-call',
+  });
+}
+
+function buildSymbolEdges(nodes, importsByFile, refsByFile) {
+  const symbolEdges = [];
+  const seen = new Set();
+  const symbolIndex = buildSymbolDefinitionIndex(nodes);
+  const definitionsByFile = buildDefinitionsByFile(nodes);
+
+  for (const node of nodes) {
+    const content = refsByFile.get(node.id) || '';
+    const candidates = buildReferenceCandidates(node.id, definitionsByFile, importsByFile);
+    if (candidates.length === 0) continue;
+    const refs = extractSymbolReferences(content, candidates);
+    const definitions = node.definitions || [];
+    for (const ref of refs) {
+      const sourceDef = findContainingDefinition(definitions, ref.line);
+      if (!sourceDef) continue;
+      const targets = resolveSymbolTargets(node.id, ref.name, symbolIndex, importsByFile);
+      for (const target of targets) {
+        addSymbolEdge(symbolEdges, seen, node.id, sourceDef, target, ref.line);
+      }
+    }
+  }
+  return symbolEdges;
 }
 
 // ============================================================
@@ -670,6 +820,7 @@ function buildNodeFromContent(file, content) {
       lang,
       preview: previewLines,
       rawPreview: buildRawPreview(safeContent),
+      content: safeContent,
       parseStatus,
       parseReason,
       size: file.size || 0,
@@ -683,12 +834,15 @@ function buildNodeFromContent(file, content) {
 // ============================================================
 // MAIN: generateGraphFromGitHub
 // ============================================================
+/** @returns {Promise<GraphData>} */
 async function generateGraphFromGitHub(githubUrl, token, onProgress) {
   const parsed = parseGitHubUrl(githubUrl);
   if (!parsed) throw new Error('Invalid GitHub URL. Use: https://github.com/owner/repo');
 
+  const effectiveToken = token || (DEV_MODE ? DEV_GITHUB_TOKEN : null);
+
   if (onProgress) onProgress('Fetching repository tree...');
-  const { tree, branch, headers } = await fetchGitHubTree(parsed.owner, parsed.repo, token);
+  const { tree, branch, headers } = await fetchGitHubTree(parsed.owner, parsed.repo, effectiveToken);
 
   const { files, skippedExts } = filterTree(tree);
   if (files.length === 0) throw new Error('No source files found in this repo after filters');
@@ -698,6 +852,9 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
   const fileSet = new Set(files.map(f => f.path));
   const nodes = [];
   const edges = [];
+  const importsByFile = new Map();
+  const refsByFile = new Map();
+  /** @type {Record<string, number>} */
   const langStats = {};
   const parseSummary = {
     [PARSE_STATUS_FULL]: 0,
@@ -724,21 +881,28 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
       langStats[lang] = (langStats[lang] || 0) + 1;
       parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
       nodes.push(node);
+      refsByFile.set(file.path, content || '');
 
+      const resolvedImports = new Set();
       for (const imp of imports) {
         const resolved = resolveImport(imp, file.path, fileSet, lang);
-        if (resolved) {
-          edges.push({ from: file.path, to: resolved });
-        }
+        if (!resolved) continue;
+        edges.push({ from: file.path, to: resolved });
+        resolvedImports.add(resolved);
       }
+      importsByFile.set(file.path, resolvedImports);
     }
 
     if (onProgress) onProgress(`Analyzed ${fetched}/${files.length} files...`);
   }
 
-  return {
+  const symbolEdges = buildSymbolEdges(nodes, importsByFile, refsByFile);
+
+  /** @type {GraphData} */
+  const graphData = {
     nodes,
     edges,
+    symbolEdges,
     meta: {
       languages: langStats,
       parseSummary,
@@ -750,11 +914,13 @@ async function generateGraphFromGitHub(githubUrl, token, onProgress) {
       provider: 'github',
     },
   };
+  return graphData;
 }
 
 // ============================================================
 // MAIN: generateGraphFromLocalFolder
 // ============================================================
+/** @returns {Promise<GraphData>} */
 async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
   if (!directoryHandle) {
     throw new Error('generateGraphFromLocalFolder requires a directory handle');
@@ -770,8 +936,11 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
   }
 
   const files = rawEntries;
+  /** @typedef {{ handle: FileSystemFileHandle, path: string, size: number, lang: string, ext: string, unsupportedExt?: string }} LocalFileEntry */
+  /** @type {LocalFileEntry[]} */
+  const typedEntries = rawEntries;
   const unsupportedExts = new Set(
-    rawEntries.filter((f) => f.lang === 'unknown' && f.unsupportedExt).map((f) => f.unsupportedExt)
+    typedEntries.filter((f) => f.lang === 'unknown' && f.unsupportedExt).map((f) => f.unsupportedExt)
   );
 
   if (files.length === 0) {
@@ -783,6 +952,9 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
   const fileSet = new Set(files.map((f) => f.path));
   const nodes = [];
   const edges = [];
+  const importsByFile = new Map();
+  const refsByFile = new Map();
+  /** @type {Record<string, number>} */
   const langStats = {};
   const parseSummary = {
     [PARSE_STATUS_FULL]: 0,
@@ -814,20 +986,29 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
       langStats[lang] = (langStats[lang] || 0) + 1;
       parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
       nodes.push(node);
+      refsByFile.set(file.path, content || '');
 
+      const resolvedImports = new Set();
       for (const imp of imports) {
         const resolved = resolveImport(imp, file.path, fileSet, lang);
-        if (resolved) edges.push({ from: file.path, to: resolved });
+        if (!resolved) continue;
+        edges.push({ from: file.path, to: resolved });
+        resolvedImports.add(resolved);
       }
+      importsByFile.set(file.path, resolvedImports);
     }
 
     if (onProgress) onProgress(`Analyzed ${processed}/${files.length} files...`);
     await new Promise((r) => setTimeout(r, 0));
   }
 
-  return {
+  const symbolEdges = buildSymbolEdges(nodes, importsByFile, refsByFile);
+
+  /** @type {GraphData} */
+  const graphData = {
     nodes,
     edges,
+    symbolEdges,
     meta: {
       languages: langStats,
       parseSummary,
@@ -839,11 +1020,13 @@ async function generateGraphFromLocalFolder(directoryHandle, onProgress) {
       provider: 'local',
     },
   };
+  return graphData;
 }
 
 // ============================================================
 // MAIN: generateGraphFromGitLab
 // ============================================================
+/** @returns {Promise<GraphData>} */
 async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
   const parsed = parseGitLabUrl(gitlabUrl);
   if (!parsed) throw new Error('Invalid GitLab URL. Use: https://gitlab.com/group/project');
@@ -868,6 +1051,9 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
   const fileSet = new Set(files.map((f) => f.path));
   const nodes = [];
   const edges = [];
+  const importsByFile = new Map();
+  const refsByFile = new Map();
+  /** @type {Record<string, number>} */
   const langStats = {};
   const parseSummary = {
     [PARSE_STATUS_FULL]: 0,
@@ -893,21 +1079,28 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
       langStats[lang] = (langStats[lang] || 0) + 1;
       parseSummary[parseStatus] = (parseSummary[parseStatus] || 0) + 1;
       nodes.push(node);
+      refsByFile.set(file.path, content || '');
 
+      const resolvedImports = new Set();
       for (const imp of imports) {
         const resolved = resolveImport(imp, file.path, fileSet, lang);
-        if (resolved) {
-          edges.push({ from: file.path, to: resolved });
-        }
+        if (!resolved) continue;
+        edges.push({ from: file.path, to: resolved });
+        resolvedImports.add(resolved);
       }
+      importsByFile.set(file.path, resolvedImports);
     }
 
     if (onProgress) onProgress(`Analyzed ${fetched}/${files.length} files...`);
   }
 
-  return {
+  const symbolEdges = buildSymbolEdges(nodes, importsByFile, refsByFile);
+
+  /** @type {GraphData} */
+  const graphData = {
     nodes,
     edges,
+    symbolEdges,
     meta: {
       languages: langStats,
       parseSummary,
@@ -919,4 +1112,5 @@ async function generateGraphFromGitLab(gitlabUrl, token, onProgress) {
       provider: 'gitlab',
     },
   };
+  return graphData;
 }

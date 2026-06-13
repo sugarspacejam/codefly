@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { generateGraph, cloneRepo } = require('./generate-graph');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const { CodeAgent } = require('./code-agent');
 
 const PORT = parseInt(process.env.PORT, 10) || 8090;
 const WS_PORT = parseInt(process.env.WS_PORT, 10) || 8091;
@@ -12,6 +16,53 @@ const WS_PORT = parseInt(process.env.WS_PORT, 10) || 8091;
 // ============================================================
 const graphCache = new Map();
 const roomMessages = new Map();
+
+// ============================================================
+// CODE AGENT SYSTEM
+// ============================================================
+const agents = new Map();
+let nextAgentId = 1;
+
+function createAgent(config) {
+    const agentId = config.id || `agent-${nextAgentId++}`;
+    const agentConfig = {
+        id: agentId,
+        name: config.name || 'Agent',
+        role: config.role || 'assistant',
+        systemPrompt: config.systemPrompt,
+        llm: {
+            baseUrl: config.llm?.baseUrl || 'http://10.0.0.6:11434',
+            model: config.llm?.model || 'llama3.2'
+        }
+    };
+    
+    const agent = new CodeAgent(agentConfig);
+    agent.setPosition(
+        config.position?.x || 0,
+        config.position?.y || 30,
+        config.position?.z || 80
+    );
+    
+    agents.set(agentId, agent);
+    console.log(`Created agent: ${agentId} (${agentConfig.name})`);
+    return agent;
+}
+
+function getAgent(agentId) {
+    return agents.get(agentId);
+}
+
+function getAllAgents() {
+    return Array.from(agents.values()).map(agent => agent.toJSON());
+}
+
+function removeAgent(agentId) {
+    const removed = agents.delete(agentId);
+    if (removed) {
+        console.log(`Removed agent: ${agentId}`);
+    }
+    return removed;
+}
 
 // ============================================================
 // MONETIZATION + RATE LIMITING — plan-aware quotas
@@ -309,6 +360,127 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // ---- API: Dead code detection ----
+  if (urlPath === '/api/deadcode' && req.method === 'POST') {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const raw = await readBody(req);
+      const { url } = JSON.parse(raw);
+      if (!url) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'url is required' }));
+        return;
+      }
+
+      let scanDir;
+      let needsCleanup = false;
+
+      if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('git@')) {
+        scanDir = cloneRepo(url);
+        needsCleanup = true;
+      } else {
+        scanDir = path.resolve(url);
+        if (!fs.existsSync(scanDir)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: `Directory not found: ${url}` }));
+          return;
+        }
+      }
+
+      const results = { knip: null, depcheck: null, errors: [] };
+
+      try {
+        const { stdout: knipOutput, stderr: knipStderr } = await execAsync('npx knip', { cwd: scanDir, timeout: 60000 });
+        results.knip = knipOutput || knipStderr;
+      } catch (err) {
+        results.knip = err.stdout || err.stderr || err.message;
+      }
+
+      try {
+        const { stdout: depcheckOutput, stderr: depcheckStderr } = await execAsync('npx depcheck', { cwd: scanDir, timeout: 60000 });
+        results.depcheck = depcheckOutput || depcheckStderr;
+      } catch (err) {
+        results.depcheck = err.stdout || err.stderr || err.message;
+      }
+
+      if (needsCleanup) {
+        fs.rmSync(scanDir, { recursive: true });
+      }
+
+      res.writeHead(200);
+      res.end(JSON.stringify(results));
+    } catch (err) {
+      console.error('Dead code detection error:', err.message);
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // ---- API: Agent management ----
+  if (urlPath === '/api/agents' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(200);
+    res.end(JSON.stringify(getAllAgents()));
+    return;
+  }
+
+  if (urlPath === '/api/agents' && req.method === 'POST') {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const raw = await readBody(req);
+      const config = JSON.parse(raw);
+      const agent = createAgent(config);
+      broadcastAgentJoin(agent.toJSON());
+      res.writeHead(201);
+      res.end(JSON.stringify(agent.toJSON()));
+    } catch (err) {
+      console.error('Agent creation error:', err.message);
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  const agentMatch = urlPath.match(/^\/api\/agents\/([^/]+)$/);
+  if (agentMatch && req.method === 'DELETE') {
+    const agentId = decodeURIComponent(agentMatch[1]);
+    res.setHeader('Content-Type', 'application/json');
+    const removed = removeAgent(agentId);
+    if (removed) {
+      broadcastAgentLeave(agentId);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true }));
+    } else {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: 'Agent not found' }));
+    }
+    return;
+  }
+
+  if (urlPath.match(/^\/api\/agents\/[^/]+\/chat$/) && req.method === 'POST') {
+    const agentId = decodeURIComponent(urlPath.split('/')[3]);
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const raw = await readBody(req);
+      const { message, codeContext } = JSON.parse(raw);
+      const agent = getAgent(agentId);
+      if (!agent) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Agent not found' }));
+        return;
+      }
+      const response = await agent.processMessage(message, codeContext);
+      res.writeHead(200);
+      res.end(JSON.stringify({ response }));
+    } catch (err) {
+      console.error('Agent chat error:', err.message);
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // ---- Static files ----
   const filePath = path.join(__dirname, urlPath === '/' ? 'index.html' : urlPath);
 
@@ -394,6 +566,7 @@ wss.on('connection', (ws, req) => {
     playerId: playerId,
     roomId,
     players: Array.from(room.players.values()).map(p => p.data),
+    agents: getAllAgents(),
   }));
 
   broadcastToRoom(roomId, {
@@ -480,6 +653,24 @@ function broadcastToRoom(roomId, msg, excludeId) {
     if (player.ws.readyState === 1) {
       player.ws.send(data);
     }
+  }
+}
+
+function broadcastAgentJoin(agentData) {
+  for (const [roomId, room] of rooms) {
+    broadcastToRoom(roomId, {
+      type: 'agent_joined',
+      agent: agentData,
+    });
+  }
+}
+
+function broadcastAgentLeave(agentId) {
+  for (const [roomId, room] of rooms) {
+    broadcastToRoom(roomId, {
+      type: 'agent_left',
+      agentId: agentId,
+    });
   }
 }
 

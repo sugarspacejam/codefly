@@ -1,61 +1,68 @@
-# CodeFly 🚀
+# CodeFly
 
-**Fly through any codebase in 3D.** Type a GitHub/GitLab URL or pick a local folder — your repo renders as a navigable 3D graph in the browser. Files are glowing spheres connected by dependency edges. Functions and classes orbit their parent file.
+CodeFly is a browser-based 3D codebase explorer for quickly understanding unfamiliar repositories.
 
-WASD to fly, mouse to look, click to explore. Multiplayer rooms let your team explore together.
+Paste a public GitHub/GitLab URL or choose a local folder, then navigate files, dependencies, definitions, and static execution paths in a single visual map.
 
-![CodeFly demo](https://via.placeholder.com/800x400?text=CodeFly+Demo)
+## Public Beta Scope
 
-## Features
+### Headline features
 
-- 🌐 **Public repos** — paste any GitHub/GitLab URL, no login
-- 💻 **Local folders** — browser-only, files never leave your machine (Chrome/Edge)
-- 🔒 **Private repos** — connect via GitHub/GitLab OAuth
-- 👥 **Multiplayer** — explore the same repo with your team in real-time
-- 🔍 **Smart search** — `Ctrl+K` for files, functions, classes
-- 📊 **Analytics lenses** — orphan files, hub files, hot paths, blast radius, churn heatmap, blame overlay
-- 🗺️ **Landmarks & tours** — pin nodes, share tours via QR code
-- 🧭 **Three layout modes** — cluster, galaxy, filesystem
+- 🌐 Public GitHub/GitLab repository loading
+- 💻 Local folder loading in supported browsers (files stay local)
+- 🧭 3D file and dependency graph
+- � File/function/class search (`Ctrl+K` / `Cmd+K`)
+- 🧬 Static execution paths from `graphData.symbolEdges`
+- 📊 Basic dependency insights (for example: orphan files, hub files, blast radius)
+- ↗ Open file in GitHub/GitLab/local IDE where supported
+
+### Secondary / beta features
+
+- Private repository OAuth/token flows
+- Multiplayer presence
+- Chat (experimental and non-blocking)
+
+### Not part of launch promise
+
+- Runtime call stacks or runtime tracing
+- Persistent team collaboration platform claims
+- Advanced analytics platform claims
 
 ## Supported Languages
 
-JavaScript, TypeScript, Python, Go, Java, Rust, C#, Ruby, PHP, Swift, Kotlin, Scala, C, C++, HTML, CSS, Vue, Svelte, JSON, YAML, Markdown, Shell, SQL, XML, TOML, Docker.
+JavaScript, TypeScript, Python, Go, Java, Rust, C#, Ruby, PHP, Swift, Kotlin, Scala, C, C++, HTML, CSS, Vue, Svelte, JSON, YAML, Markdown, Shell, SQL, XML, TOML, and Docker.
 
-CodeFly also includes unsupported non-binary files as graph nodes in `unsupported` parse mode, so whole repositories still load even when a parser does not exist yet. See [CONTRIBUTING.md](CONTRIBUTING.md) to add language support.
+Unsupported non-binary files are still included as nodes in `unsupported` parse mode so repositories load without crashing.
 
 ## Run Locally
 
 ```bash
-# Clone the repo
 git clone https://github.com/sugarspacejam/codefly.git
 cd codefly
-
-# Start the server (enables multiplayer + room persistence)
 npm start
-
-# Open http://localhost:8090
 ```
 
-> Note: The server enables room-scoped multiplayer and persistent chat. For static-only mode, use `npm run start:static`.
+Open `http://localhost:8090`.
+
+For static/browser-only mode:
+
+```bash
+npm run start:static
+```
 
 ## Deploy
 
-Deploy for free with GitHub Pages:
+Static-first deployment uses GitHub Pages via `.github/workflows/pages.yml`.
 
-1. Push this repo to `main`
-2. In GitHub, open `Settings` → `Pages`
-3. Set `Source` to `GitHub Actions`
-4. The included workflow (`.github/workflows/pages.yml`) publishes `index.html`, `explorer.js`, and `graph-generator.js`
+1. Push to `main`
+2. Open GitHub `Settings` → `Pages`
+3. Set source to `GitHub Actions`
 
-Optional multiplayer (still free): deploy the Cloudflare Worker in `multiplayer/` and set `window.CODEFLY_MULTIPLAYER_HOST` in `index.html`.
+Optional OAuth/multiplayer proxy lives in `multiplayer/`.
 
-## Support the Project
+## Contributing
 
-If CodeFly helps you, please consider:
-
-- 💛 [Donate via PayPal](https://paypal.me/CelestifyLTD)
-- ⭐ Star this repo
-- 🐛 Report bugs / request languages via issues
+See [CONTRIBUTING.md](CONTRIBUTING.md) for parser and feature contribution guidelines.
 
 ## License
 

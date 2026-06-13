@@ -1,0 +1,44 @@
+[
+  {
+    "name": "escapeHtml",
+    "start": 0,
+    "end": 130,
+    "hash": "75352458"
+  },
+  {
+    "name": "getPendingOAuth",
+    "start": 133,
+    "end": 403,
+    "hash": "-819362261"
+  },
+  {
+    "name": "clearPendingOAuth",
+    "start": 406,
+    "end": 536,
+    "hash": "1085564551"
+  },
+  {
+    "name": "loadRecentRepos",
+    "start": 539,
+    "end": 812,
+    "hash": "-1442557992"
+  },
+  {
+    "name": "showLoadError",
+    "start": 815,
+    "end": 957,
+    "hash": "1890722996"
+  },
+  {
+    "name": "hideLoadError",
+    "start": 960,
+    "end": 1053,
+    "hash": "-713621718"
+  },
+  {
+    "name": "updateAuthUi",
+    "start": 1056,
+    "end": 1510,
+    "hash": "189862761"
+  }
+]

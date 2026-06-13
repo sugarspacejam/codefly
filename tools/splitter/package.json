@@ -1,0 +1,38 @@
+{
+  "name": "codefly-splitter",
+  "version": "1.0.0",
+  "description": "Deterministic function extraction and file splitting toolkit",
+  "main": "lib/files.js",
+  "bin": {
+    "splitter-list": "01-list-functions.js",
+    "splitter-extract": "02-extract-function.js",
+    "splitter-extract-all": "03-extract-functions.js",
+    "splitter-manifest": "04-build-function-manifest.js",
+    "splitter-verify": "05-verify-extracted-function.js",
+    "splitter-calls": "06-list-function-calls.js",
+    "splitter-globals": "07-list-globals-used.js",
+    "splitter-deps": "08-build-dependency-graph.js",
+    "splitter-check-dupes": "09-check-duplicate-functions.js",
+    "splitter-check-size": "10-check-function-size.js",
+    "splitter-check-file": "11-check-file-size.js",
+    "splitter-check-collisions": "12-check-output-collisions.js",
+    "splitter-compare": "13-compare-manifests.js",
+    "splitter-rebuild": "14-build-module-file.js",
+    "splitter-plan-remove": "15-plan-function-removal.js",
+    "splitter-syntax": "16-check-js-syntax.js",
+    "splitter-ready": "17-report-split-readiness.js",
+    "splitter-index": "18-write-function-index.js",
+    "splitter-no-heredoc": "19-check-no-heredoc.js",
+    "splitter-check-all": "20-run-split-safety-checks.js"
+  },
+  "scripts": {
+    "test": "node 20-run-split-safety-checks.js explorer.js"
+  },
+  "keywords": [
+    "splitter",
+    "refactor",
+    "extraction",
+    "code-splitting"
+  ],
+  "license": "MIT"
+}
