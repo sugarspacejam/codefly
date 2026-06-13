@@ -1,4 +1,4 @@
-var graphData = {
+{
   "nodes": [
     {
       "id": ".gitignore",
@@ -86506,4 +86506,4 @@ var graphData = {
     "totalFiles": 249,
     "generatedAt": "2026-06-13T18:53:55.276Z"
   }
-};
+}

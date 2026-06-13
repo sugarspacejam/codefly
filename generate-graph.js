@@ -2,6 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getRepoKey, loadCache, saveCache, computeHash } = require('./graph-cache-node');
+const { diffHashes, buildHashMapFromGraph } = require('./graph-diff');
 
 /** @typedef {import('./types/graph-contract').GraphData} GraphData */
 
@@ -852,12 +854,15 @@ if (require.main === module) {
 
   let scanDir;
   let needsCleanup = false;
+  let repoKey;
 
   if (TARGET_DIR.startsWith('http://') || TARGET_DIR.startsWith('https://') || TARGET_DIR.startsWith('git@')) {
     scanDir = cloneRepo(TARGET_DIR);
     needsCleanup = true;
+    repoKey = getRepoKey(TARGET_DIR, 'main');
   } else {
     scanDir = path.resolve(TARGET_DIR);
+    repoKey = getRepoKey(scanDir, 'local');
   }
 
   const graphData = generateGraph(scanDir);
@@ -866,6 +871,23 @@ if (require.main === module) {
     fs.rmSync(scanDir, { recursive: true });
     console.log('Cleaned up cloned repo');
   }
+
+  // Compute new hashes and check for incremental sync
+  const newHashes = {};
+  for (const node of graphData.nodes) {
+    newHashes[node.id] = computeHash(node.content || '');
+  }
+
+  const cached = loadCache(repoKey);
+  if (cached && cached.graphData && cached.hashMap) {
+    const diff = diffHashes(cached.hashMap, newHashes);
+    if (diff.changed.length === 0 && diff.added.length === 0 && diff.removed.length === 0) {
+      console.log('No changes detected, using cached graph');
+      graphData = cached.graphData;
+    }
+  }
+
+  saveCache(repoKey, graphData, newHashes);
 
   const outputFile = path.join(__dirname, 'graph-data.js');
   fs.writeFileSync(outputFile, `var graphData = ${JSON.stringify(graphData, null, 2)};`);

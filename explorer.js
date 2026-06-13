@@ -4394,6 +4394,23 @@ window.loadLocalFolder = async function() {
         });
         assertGraphDataContract(data, 'Local folder load');
 
+        // Compute new hashes and check for incremental sync
+        const repoKey = getRepoKey(`local:${directoryHandle.name}`, 'local');
+        const newHashes = {};
+        for (const node of data.nodes) {
+            newHashes[node.id] = await computeHash(node.content || '');
+        }
+
+        const cached = await loadCache(repoKey);
+        if (cached.graphData && cached.hashMap) {
+            const diff = diffHashes(cached.hashMap, newHashes);
+            if (diff.changed.length === 0 && diff.added.length === 0 && diff.removed.length === 0) {
+                data = cached.graphData;
+            }
+        }
+
+        await saveCache(repoKey, data, newHashes);
+
         graphData = data;
         currentRepoUrl = null;
         init();
@@ -4534,6 +4551,9 @@ window.loadAndStart = async function() {
 
     try {
         let data = null;
+        const repoKey = getRepoKey(url, 'main');
+        const cached = await loadCache(repoKey);
+
         if (provider === 'github') {
             const token = getGitHubTokenForApi();
             data = await generateGraphFromGitHub(url, token, (msg) => {
@@ -4551,6 +4571,21 @@ window.loadAndStart = async function() {
         }
 
         assertGraphDataContract(data, 'Repository load');
+
+        // Compute new hashes and check for incremental sync
+        const newHashes = {};
+        for (const node of data.nodes) {
+            newHashes[node.id] = await computeHash(node.content || '');
+        }
+
+        if (cached.graphData && cached.hashMap) {
+            const diff = diffHashes(cached.hashMap, newHashes);
+            if (diff.changed.length === 0 && diff.added.length === 0 && diff.removed.length === 0) {
+                data = cached.graphData;
+            }
+        }
+
+        await saveCache(repoKey, data, newHashes);
 
         graphData = data;
         currentRepoUrl = url;

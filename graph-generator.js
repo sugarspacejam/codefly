@@ -831,6 +831,13 @@ function buildNodeFromContent(file, content) {
   };
 }
 
+// Per-file parsing for incremental sync
+async function parseFile(file, content) {
+  const { node, imports, parseStatus, lang } = buildNodeFromContent(file, content);
+  const refs = typeof content === 'string' ? content : '';
+  return { node, imports: Array.from(imports), refs, parseStatus, lang };
+}
+
 // ============================================================
 // MAIN: generateGraphFromGitHub
 // ============================================================
