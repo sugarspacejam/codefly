@@ -1529,6 +1529,40 @@ function setupMotionControls() {
     });
 }
 
+function getFileTypeColor(ext) {
+    const colors = {
+        'js': 0xf7df1e,
+        'ts': 0x3178c6,
+        'py': 0x3776ab,
+        'java': 0xb07219,
+        'go': 0x00add8,
+        'rs': 0xdea584,
+        'cpp': 0xf34b7d,
+        'c': 0x555555,
+        'cs': 0x239120,
+        'rb': 0x701516,
+        'php': 0x4f5d95,
+        'swift': 0xf05138,
+        'kt': 0x7f52ff,
+        'scala': 0xdc322f,
+        'html': 0xe34c26,
+        'css': 0x563d7c,
+        'scss': 0xc6538c,
+        'json': 0xcbcb41,
+        'md': 0x083fa1,
+        'yaml': 0xcb171e,
+        'yml': 0xcb171e,
+        'sql': 0xcc2927,
+        'sh': 0x89e051,
+        'bash': 0x89e051,
+        'tsx': 0x61dafb,
+        'jsx': 0x61dafb,
+        'vue': 0x41b883,
+        'svelte': 0xff3e00,
+    };
+    return colors[ext.toLowerCase()] || 0x888888;
+}
+
 // ============================================================
 // BUILD GRAPH SCENE
 // ============================================================
@@ -1591,6 +1625,14 @@ function buildGraph() {
         label.position.set(0, size + 1.5, 0);
         label.scale.set(4, 2, 1);
         mesh.add(label);
+
+        // File type indicator (small colored dot)
+        const typeColor = getFileTypeColor(node.lang || node.id.split('.').pop());
+        const typeGeo = new THREE.SphereGeometry(size * 0.3, 8, 8);
+        const typeMat = new THREE.MeshBasicMaterial({ color: typeColor });
+        const typeIndicator = new THREE.Mesh(typeGeo, typeMat);
+        typeIndicator.position.set(size * 0.8, size * 0.8, 0);
+        mesh.add(typeIndicator);
 
         // Function count indicator (small ring if has functions)
         if (hasDefs) {
@@ -3162,6 +3204,16 @@ function setupControls() {
         if (key === ' ') e.preventDefault();
         keys[key] = true;
 
+        if (key === '?' && gameStarted) {
+            const modal = document.getElementById('shortcutsModal');
+            modal.style.display = modal.style.display === 'block' ? 'none' : 'block';
+            document.exitPointerLock();
+        }
+
+        if (key === 'z' && gameStarted) {
+            zoomToFit();
+        }
+
         if (key === 'f' && gameStarted) {
             isFlying = !isFlying;
             if (!isFlying) verticalVelocity = 0;
@@ -4385,6 +4437,50 @@ window.closeIdePicker = function() {
     modal.style.display = 'none';
 };
 
+window.closeShortcuts = function() {
+    const modal = document.getElementById('shortcutsModal');
+    if (!modal) {
+        throw new Error('Shortcuts modal missing');
+    }
+    modal.style.display = 'none';
+};
+
+window.zoomToFit = function() {
+    if (!gameStarted || nodeMeshes.size === 0) return;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+
+    for (const mesh of nodeMeshes.values()) {
+        const pos = mesh.position;
+        minX = Math.min(minX, pos.x);
+        maxX = Math.max(maxX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxY = Math.max(maxY, pos.y);
+        minZ = Math.min(minZ, pos.z);
+        maxZ = Math.max(maxZ, pos.z);
+    }
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const centerZ = (minZ + maxZ) / 2;
+
+    const sizeX = maxX - minX;
+    const sizeY = maxY - minY;
+    const sizeZ = maxZ - minZ;
+    const maxDim = Math.max(sizeX, sizeY, sizeZ);
+
+    const targetDistance = maxDim * 2 + 20;
+    cameraDistance = Math.min(targetDistance, maxCameraDistance);
+
+    playerGroup.position.set(-centerX, -centerY, -centerZ);
+    playerYaw = 0;
+    playerPitch = 0;
+
+    updateCameraView();
+};
+
 function openFolderSettings() {
     if (!gameStarted) {
         throw new Error('openFolderSettings: game not started');
@@ -4490,8 +4586,10 @@ window.loadLocalFolder = async function() {
     try {
         const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
         statusEl.textContent = `Selected: ${directoryHandle.name}. Scanning...`;
+        showLoading(true, 0, `Scanning ${directoryHandle.name}...`);
         const data = await generateGraphFromLocalFolder(directoryHandle, (msg) => {
             statusEl.textContent = msg;
+            showLoading(true, 0, msg);
         });
         assertGraphDataContract(data, 'Local folder load');
 
@@ -4514,6 +4612,7 @@ window.loadLocalFolder = async function() {
 
         graphData = data;
         currentRepoUrl = null;
+        showLoading(false);
         init();
 
         document.getElementById('startScreen').style.display = 'none';
@@ -4659,6 +4758,7 @@ window.loadAndStart = async function() {
             const token = getGitHubTokenForApi();
             data = await generateGraphFromGitHub(url, token, (msg) => {
                 btn.textContent = msg;
+                showLoading(true, 0, msg);
             });
         }
         if (provider === 'gitlab') {
@@ -4668,6 +4768,7 @@ window.loadAndStart = async function() {
             }
             data = await generateGraphFromGitLab(url, token, (msg) => {
                 btn.textContent = msg;
+                showLoading(true, 0, msg);
             });
         }
 
@@ -4690,6 +4791,7 @@ window.loadAndStart = async function() {
 
         graphData = data;
         currentRepoUrl = url;
+        showLoading(false);
         init();
 
         document.getElementById('startScreen').style.display = 'none';
@@ -4712,26 +4814,37 @@ window.loadAndStart = async function() {
     }
 };
 
-function showLoading(on) {
+function showLoading(on, progress = 0, message = '') {
     const bar = document.getElementById('loadingBar');
     const fill = bar.querySelector('.fill');
+    const stats = document.getElementById('graphStats');
+    
     if (on) {
         bar.style.display = 'block';
-        fill.style.width = '0%';
-        let pct = 0;
-        const interval = setInterval(() => {
-            pct += Math.random() * 15;
-            if (pct > 90) pct = 90;
-            fill.style.width = pct + '%';
-            if (!bar.dataset.active) {
-                clearInterval(interval);
-                fill.style.width = '100%';
-            }
-        }, 300);
-        bar.dataset.active = '1';
+        if (progress > 0) {
+            fill.style.width = Math.min(progress, 100) + '%';
+        } else {
+            fill.style.width = '0%';
+            let pct = 0;
+            const interval = setInterval(() => {
+                pct += Math.random() * 15;
+                if (pct > 90) pct = 90;
+                fill.style.width = pct + '%';
+                if (!bar.dataset.active) {
+                    clearInterval(interval);
+                    fill.style.width = '100%';
+                }
+            }, 300);
+            bar.dataset.active = '1';
+        }
+        if (message && stats) {
+            stats.textContent = message;
+            stats.style.display = 'block';
+        }
     } else {
         delete bar.dataset.active;
         bar.style.display = 'none';
+        if (stats) stats.style.display = 'none';
     }
 }
 

@@ -585,7 +585,10 @@
         <div><span class="key">A</span> Agents | <span class="key">L</span> Layout</div>
         <div><span class="key">Shift+L</span> Landmark | <span class="key">V</span> Orbit/Stack</div>
         <div><span class="key">P</span> Folder styles | <span class="key">Enter</span> Chat</div>
-        <div><span class="key">Tab</span> Players</div>
+        <div><span class="key">Tab</span> Players | <span class="key">?</span> Help</div>
+        <div style="margin-top:8px; padding-top:8px; border-top:1px solid #333;">
+            <button onclick="zoomToFit()" style="background:#0f8; color:#000; border:none; padding:4px 12px; font-family:'Courier New',monospace; font-size:11px; cursor:pointer; border-radius:4px; font-weight:bold;">Zoom to Fit [Z]</button>
+        </div>
     </div>
 
     <div id="motionControls">
@@ -792,6 +795,29 @@
         <div id="idePickerPath" style="color:#555; font-size:11px; margin-bottom:14px; word-break:break-all;"></div>
         <div id="idePickerButtons" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button onclick="closeIdePicker()" style="margin-top:14px; width:100%; padding:6px; font-size:12px; font-family:'Courier New',monospace; background:transparent; color:#555; border:1px solid #333; border-radius:6px; cursor:pointer;">Cancel</button>
+    </div>
+
+    <div id="shortcutsModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.95); border:1px solid #0f8; border-radius:12px; padding:24px 32px; z-index:100; width:480px; box-shadow:0 0 40px rgba(0,255,136,0.3); font-family:'Courier New',monospace;">
+        <div style="font-size:18px; font-weight:bold; color:#fff; margin-bottom:16px;">KEYBOARD SHORTCUTS</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; color:#ccc; font-size:12px;">
+            <div><span style="color:#8f8; font-weight:bold;">?</span></div><div>Show this help</div>
+            <div><span style="color:#8f8; font-weight:bold;">WASD</span></div><div>Move around</div>
+            <div><span style="color:#8f8; font-weight:bold;">Space</span></div><div>Fly up / Jump</div>
+            <div><span style="color:#8f8; font-weight:bold;">Ctrl</span></div><div>Fly down</div>
+            <div><span style="color:#8f8; font-weight:bold;">Shift</span></div><div>4x speed boost</div>
+            <div><span style="color:#8f8; font-weight:bold;">F</span></div><div>Toggle fly/walk mode</div>
+            <div><span style="color:#8f8; font-weight:bold;">C</span></div><div>Toggle camera view</div>
+            <div><span style="color:#8f8; font-weight:bold;">G</span></div><div>Toggle analytics panel</div>
+            <div><span style="color:#8f8; font-weight:bold;">Ctrl+K</span></div><div>Search files/functions</div>
+            <div><span style="color:#8f8; font-weight:bold;">L</span></div><div>Cycle layout mode</div>
+            <div><span style="color:#8f8; font-weight:bold;">Shift+L</span></div><div>Add landmark</div>
+            <div><span style="color:#8f8; font-weight:bold;">B</span></div><div>Blast radius (selected)</div>
+            <div><span style="color:#8f8; font-weight:bold;">V</span></div><div>Toggle orbit/stack</div>
+            <div><span style="color:#8f8; font-weight:bold;">Esc</span></div><div>Close panels / Exit pointer lock</div>
+        </div>
+        <div style="display:flex; justify-content:center; margin-top:20px;">
+            <button onclick="closeShortcuts()" style="padding:8px 24px; font-size:13px; font-family:'Courier New',monospace; background:#0f8; color:#000; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Got it</button>
+        </div>
     </div>
 
     <canvas id="minimap" width="200" height="200" style="display:none;"></canvas>
