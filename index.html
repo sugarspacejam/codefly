@@ -718,8 +718,10 @@
     </div>
 
     <div id="searchOverlay">
-        <input type="text" id="searchInput" placeholder="Search files, functions, classes, variables, paths..." autocomplete="off">
-        <div style="padding:6px 18px;color:#666;font-size:11px;border-bottom:1px solid #111;">Tip: prefix with <span style="color:#ff0">?</span> for intent jump. Search <span style="color:#ff0">path</span> or <span style="color:#ff0">calls</span> for execution paths.</div>
+        <input type="text" id="searchInput" placeholder="Type a file name, function, or class..." autocomplete="off">
+        <div style="padding:6px 18px;color:#666;font-size:11px;border-bottom:1px solid #111;">
+            Examples: <span style="color:#8f8">auth</span> (files), <span style="color:#8f8">login</span> (functions), <span style="color:#8f8">path auth</span> (dependencies), <span style="color:#8f8">calls token</span> (execution paths)
+        </div>
         <div id="searchResults"></div>
     </div>
 
