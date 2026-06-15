@@ -2696,8 +2696,6 @@ function renderCodeBoardBackEmpty() {
 function renderCodeToBoard(nodeData, functionData) {
     if (!codeBoardCtx || !nodeData) return;
     
-    console.log('Rendering code board for:', nodeData.label, 'has content:', !!nodeData.content, 'content length:', nodeData.content?.length || 0);
-    
     codeBoardCtx.fillStyle = '#0a0a15';
     codeBoardCtx.fillRect(0, 0, codeBoardCanvas.width, codeBoardCanvas.height);
     
@@ -2756,7 +2754,8 @@ function renderCodeToBoard(nodeData, functionData) {
         codeBoardCtx.fillText('File content not available', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2);
         codeBoardCtx.fillStyle = '#666';
         codeBoardCtx.font = '18px Courier New';
-        codeBoardCtx.fillText('Reload the repo - content was missing in this graph', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2 + 30);
+        codeBoardCtx.fillText('This graph was generated without file content', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2 + 30);
+        codeBoardCtx.fillText('Reload the repository to include full file content', codeBoardCanvas.width / 2, codeBoardCanvas.height / 2 + 55);
     }
     
     if (codeBoardTexture) {
