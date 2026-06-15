@@ -75,7 +75,9 @@ let hoveredNode = null;
 let hoveredNodeId = null;
 let hoveredMesh = null;
 let hoveredFunctionMesh = null;
+let hoveredEdgeLine = null;
 let selectedNodeId = null;
+let focusEdgesEnabled = false;
 let churnHeatEnabled = false;
 let isChurnLoading = false;
 let churnByNodeId = {};
@@ -1628,6 +1630,12 @@ function buildGraph() {
         opacity: 0.25
     });
 
+    const hitMaterial = new THREE.LineBasicMaterial({
+        color: 0x1a3a5a,
+        transparent: true,
+        opacity: 0
+    });
+
     for (const edge of graphData.edges) {
         const fromMesh = nodeMeshes.get(edge.from);
         const toMesh = nodeMeshes.get(edge.to);
@@ -1636,9 +1644,17 @@ function buildGraph() {
         const points = [fromMesh.position.clone(), toMesh.position.clone()];
         const geo = new THREE.BufferGeometry().setFromPoints(points);
         const line = new THREE.Line(geo, edgeMaterial.clone());
-        line.userData = { from: edge.from, to: edge.to };
+        line.userData = { from: edge.from, to: edge.to, isEdge: true };
         scene.add(line);
         edgeLines.push(line);
+
+        // Invisible thicker line for raycasting
+        const hitGeo = new THREE.BufferGeometry().setFromPoints(points);
+        const hitLine = new THREE.Line(hitGeo, hitMaterial.clone());
+        hitLine.userData = { from: edge.from, to: edge.to, isEdge: true, isHitTarget: true };
+        hitLine.renderOrder = -1;
+        scene.add(hitLine);
+        edgeLines.push(hitLine);
     }
 
     // Folder pillars
@@ -1779,7 +1795,7 @@ function collapseFunctions(nodeId) {
 }
 
 function updateRaycastTargets() {
-    raycastTargets = nodeMeshArray.concat(functionMeshArray);
+    raycastTargets = nodeMeshArray.concat(functionMeshArray).concat(edgeLines.filter(l => l.userData.isHitTarget));
 }
 
 function updateFunctionRaycastTargets(nodeId) {
@@ -2099,6 +2115,16 @@ function resolveHoverTarget(intersects) {
     }
 
     let target = intersects[0].object;
+
+    if (target.userData.isEdge) {
+        return {
+            isEdge: true,
+            from: target.userData.from,
+            to: target.userData.to,
+            edgeLine: target
+        };
+    }
+
     while (target && !target.userData.isFileNode && !target.userData.isFunctionNode) {
         target = target.parent;
     }
@@ -2172,6 +2198,35 @@ function showNodeFallbackPanel(node) {
             <div style="color:${parseMeta.color}; font-weight:bold; margin-bottom:6px;">${parseMeta.label} PARSE</div>
             <div style="color:#ccc; font-size:12px; line-height:1.5;">${escapeHtml(parseReason)}</div>
             ${previewHtml}
+        </div>
+    `;
+}
+
+function showEdgeDetails(fromPath, toPath) {
+    const panel = document.getElementById('functionPanel');
+    const list = document.getElementById('functionList');
+    const fromNode = getNodeById(fromPath);
+    const toNode = getNodeById(toPath);
+
+    panel.style.display = 'block';
+    document.getElementById('functionFileName').textContent = 'IMPORT RELATIONSHIP';
+    document.getElementById('functionCount').textContent = 'Dependency';
+
+    const fromHtml = fromNode 
+        ? `<div style="color:#8f8; font-size:12px; margin-bottom:4px;">${escapeHtml(fromPath)}</div><div style="color:#666; font-size:11px;">${fromNode.lines} lines · ${fromNode.lang}</div>`
+        : `<div style="color:#f66; font-size:12px;">${escapeHtml(fromPath)} (not found)</div>`;
+
+    const toHtml = toNode
+        ? `<div style="color:#8f8; font-size:12px; margin-bottom:4px;">${escapeHtml(toPath)}</div><div style="color:#666; font-size:11px;">${toNode.lines} lines · ${toNode.lang}</div>`
+        : `<div style="color:#f66; font-size:12px;">${escapeHtml(toPath)} (not found)</div>`;
+
+    list.innerHTML = `
+        <div class="fn-item" style="border-bottom:none; padding:2px 0 0;">
+            <div style="color:#b0f; font-weight:bold; margin-bottom:8px;">FROM</div>
+            ${fromHtml}
+            <div style="color:#b0f; font-weight:bold; margin:12px 0 8px;">TO</div>
+            ${toHtml}
+            <div style="margin-top:12px; color:#666; font-size:11px;">Click file nodes to view code</div>
         </div>
     `;
 }
@@ -3228,6 +3283,14 @@ function setupControls() {
             return;
         }
 
+        const intersects = raycaster.intersectObjects(raycastTargets, true);
+        const hoverTarget = resolveHoverTarget(intersects);
+
+        if (hoverTarget && hoverTarget.isEdge) {
+            showEdgeDetails(hoverTarget.from, hoverTarget.to);
+            return;
+        }
+
         if (hoveredFunctionMesh) {
             const ud = hoveredFunctionMesh.userData;
             const parentMesh = nodeMeshes.get(ud.parentNodeId);
@@ -3244,6 +3307,8 @@ function setupControls() {
             }
         } else {
             selectedNodeId = null;
+            focusEdgesEnabled = false;
+            updateEdgeVisibility();
             resetCallChainHighlight();
             document.getElementById('functionPanel').style.display = 'none';
         }
@@ -3351,6 +3416,11 @@ function updateHover() {
         hoveredFunctionMesh.scale.setScalar(1);
     }
 
+    if (hoveredEdgeLine && hoveredEdgeLine !== hoverTarget?.edgeLine) {
+        hoveredEdgeLine.material.opacity = 0.25;
+        hoveredEdgeLine = null;
+    }
+
     if (!hoverTarget) {
         hoveredNode = null;
         hoveredNodeId = null;
@@ -3362,6 +3432,17 @@ function updateHover() {
         const tt = document.getElementById('hoverTooltip');
         if (tt) tt.style.display = 'none';
         document.getElementById('previewCard').style.display = 'none';
+        return;
+    }
+
+    if (hoverTarget.isEdge) {
+        hoveredEdgeLine = hoverTarget.edgeLine;
+        hoveredEdgeLine.material.opacity = 0.8;
+        const tt = document.getElementById('hoverTooltip');
+        if (tt) {
+            tt.style.display = 'block';
+            tt.innerHTML = `<div style="color:#8f8;font-size:13px;margin-bottom:4px;">IMPORT</div><div style="color:#aaa;font-size:11px;">${hoverTarget.from} → ${hoverTarget.to}</div><div style="color:#666;font-size:10px;margin-top:4px;">Click to see details</div>`;
+        }
         return;
     }
 
@@ -3580,6 +3661,27 @@ window.filterOrphans = function() {
         .map(n => n.id);
     highlightNodes(orphans, 'Orphan files (no imports, not imported)');
 };
+
+window.toggleFocusEdges = function() {
+    if (!selectedNodeId) {
+        alert('Select a node first to focus its edges');
+        return;
+    }
+    focusEdgesEnabled = !focusEdgesEnabled;
+    updateEdgeVisibility();
+};
+
+function updateEdgeVisibility() {
+    for (const line of edgeLines) {
+        if (line.userData.isHitTarget) continue;
+        if (focusEdgesEnabled && selectedNodeId) {
+            const isRelated = line.userData.from === selectedNodeId || line.userData.to === selectedNodeId;
+            line.visible = isRelated;
+        } else {
+            line.visible = true;
+        }
+    }
+}
 
 window.filterHubs = function() {
     const connections = {};
