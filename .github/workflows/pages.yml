@@ -25,7 +25,7 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir -p _site
-          cp index.html explorer.js graph-generator.js _site/
+          cp index.html explorer.js graph-generator.js graph-cache.js graph-diff.js _site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
